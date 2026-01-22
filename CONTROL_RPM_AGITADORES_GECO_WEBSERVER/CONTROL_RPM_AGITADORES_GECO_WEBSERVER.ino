@@ -1,5 +1,6 @@
 // AUTORES: MIGUEL RODRÍGUEZ LÓPEZ y ADRIÁN PINEY GUTIÉRREZ
 // Programa diseñado para medir las RPM y Hz de los agitadores del GeCo
+// Versión: 7 -- Tests SD (HTML + JS)
 
 #include <PortentaEthernet.h>
 #include <Ethernet.h>
