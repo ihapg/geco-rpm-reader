@@ -1,6 +1,6 @@
 // AUTORES: MIGUEL RODRÍGUEZ LÓPEZ y ADRIÁN PINEY GUTIÉRREZ
 // Programa diseñado para medir las RPM y Hz de los agitadores del GeCo
-// Versión: 7 -- Tests SD (HTML + JS)
+// Versión: 7 -- SD (HTML + JS)
 
 #include <PortentaEthernet.h>
 #include <Ethernet.h>
@@ -26,20 +26,20 @@ unsigned long lastUpdate[12] = { 0 };
 // Tiempo límite para resetear variables
 const unsigned long TIMEOUT = 12000;
 
-// Configuración de IP y puerto del servidor (produccion)
-// IPAddress ip(192, 168, 1, 254);
+// Configuración de IP (produccion)
+IPAddress ip(192, 168, 1, 254);
 
-// IP para pruebas (desarrollo)
-IPAddress ip(169, 254, 1, 2);
+// IP-dev (desarrollo)
+// IPAddress ip(169, 254, 1, 2);
 
-// Servidor
+// Puerto del servidor
 EthernetServer server(80);
 
 // Clientes simultáneos
 const unsigned int MAX_CLIENTS = 5;
 EthernetClient clients[MAX_CLIENTS];
 
-//SD
+// SD
 SDMMCBlockDevice block_device;
 mbed::FATFileSystem fs("sd");
 
@@ -47,7 +47,7 @@ mbed::FATFileSystem fs("sd");
 bool sd_check = false;
 bool ethernet_check = false;
 
-//################### FUNCTIONS ###################
+//################### FUNCIONES ###################
 
 // Función base para gestionar interrupciones y asignación a cada sensor
 void baseInterruptionHandler(uint8_t id) {
@@ -117,6 +117,7 @@ void updateSensors() {
 // Función para comprobar y resetear los datos tras inactividad
 void checkTimeouts() {
   unsigned long now = millis();
+
   for (int i = 0; i < (sizeof(rpm) / sizeof(rpm[0])); i++) {
     if (rpm[i] > 0 && (now - lastUpdate[i] > TIMEOUT)) {
       rpm[i] = 0;
@@ -128,7 +129,7 @@ void checkTimeouts() {
   }
 }
 
-// Abrir archivo solicitado
+// Función que devuelve el archivo solicitado de la SD
 void serveFile(EthernetClient &client, const char *path, const char *mime) {
   FILE *file = fopen(path, "r");
   if (!file) {
@@ -147,15 +148,18 @@ void serveFile(EthernetClient &client, const char *path, const char *mime) {
   while ((n = fread(buf, 1, sizeof(buf), file)) > 0) {
     client.write((uint8_t *)buf, n);
   }
+
   fclose(file);
 }
 
+// Función que devuelve los datos de los sensores en formato JSON
 void serveJSON(EthernetClient &client) {
   client.println("HTTP/1.1 200 OK");
   client.println("Content-Type: application/json");
   client.println("Connection: close");
   client.println();
   client.print("[");
+
   for (int i = 0; i < 12; i++) {
     client.print("\t{\"sensor\":");
     client.print(i + 1);
@@ -164,11 +168,14 @@ void serveJSON(EthernetClient &client) {
     client.print(",\"hz\":");
     client.print(hz[i], 2);
     client.print("}");
+
     if (i < 11) client.print(",");
   }
+
   client.print("]");
 }
 
+// Función para comprobar el estado de la SD
 bool checkSD() {
   Serial.println("Mounting SDCARD...");
 
@@ -189,6 +196,7 @@ bool checkSD() {
   return false;
 }
 
+// Función para imprimir la información de la SD
 void printSDInfo() {
   DIR *dir;
   struct dirent *ent;
@@ -203,8 +211,7 @@ void printSDInfo() {
     closedir(dir);
   } else {
     Serial.println("Error opening SDCARD\n");
-    while (1)
-      ;
+    return;
   }
   if (dirIndex == 0) {
     Serial.println("Empty SDCARD");
@@ -212,13 +219,13 @@ void printSDInfo() {
 }
 
 
-//################### RUN ###################
+//################### EJECUCIÓN ###################
 
 void setup() {
   Serial.begin(115200);
   delay(500);
 
-  // === Sensors
+  // Sensores
   for (int i = 0; i < (sizeof(SENSOR_PINS) / sizeof(SENSOR_PINS[0])); i++) {
     pinMode(SENSOR_PINS[i], INPUT_PULLUP);
     int irq = digitalPinToInterrupt(SENSOR_PINS[i]);
@@ -231,7 +238,7 @@ void setup() {
     }
   }
 
-  // === Ethernet
+  // Ethernet
   Ethernet.begin(ip);
   delay(1000);
 
@@ -243,11 +250,11 @@ void setup() {
     Serial.println("Ethernet without link.");
   }
 
-  // === Server
+  // Server
   server.begin();
   Serial.println("HTTP Server started.");
 
-  // === SD
+  // SD
   sd_check = checkSD();
   if (!sd_check) {
     Serial.println("SD not available.");
