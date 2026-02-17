@@ -1,4 +1,4 @@
-// Implementación WebServer
+// Servicio Web
 
 #include <Arduino.h>
 #include <RPC.h>
@@ -9,8 +9,9 @@
 #include "SDMMCBlockDevice.h"
 #include "FATFileSystem.h"
 
-// === Configuracion server ===
-// Configuración de IP (produccion)
+// === Variables ===
+// Configuracion server
+// IP (produccion)
 // IPAddress ip(192, 168, 1, 254);
 
 // IP-dev (desarrollo)
@@ -32,7 +33,7 @@ bool sd_check = false;
 bool ethernet_check = false;
 bool rpc_check = false;
 
-// === Variables ===
+// Estructura con datos
 SensorData sensorDataM7;
 
 // === Funciones ===
@@ -61,6 +62,18 @@ void serveFile(EthernetClient &client, const char *path, const char *mime) {
 
 // Función que devuelve los datos de los sensores en formato JSON
 void serveJSON(EthernetClient &client) {
+
+  try
+  {
+    auto result = RPC.call("get_data").as<SensorData>();
+    sensorDataM7 = result;
+  }
+  catch (__exception ex)
+  {
+    Serial.print("ERROR: Get data failed: ");
+    Serial.println(ex.name);
+  }
+
   client.println("HTTP/1.1 200 OK");
   client.println("Content-Type: application/json");
   client.println("Connection: close");
@@ -71,9 +84,9 @@ void serveJSON(EthernetClient &client) {
     client.print("\t{\"sensor\":");
     client.print(i + 1);
     client.print(",\"rpm\":");
-    client.print(/*rpm[i]*/(50.0 + i), 2);
+    client.print(sensorDataM7.rpms[i]/* (50.0 + i) */, 2);
     client.print(",\"hz\":");
-    client.print(/*hz[i]*/(10.0 + i), 2);
+    client.print(sensorDataM7.hzs[i]/* (10.0 + i) */, 2);
     client.print("}");
 
     if (i < 11) client.print(",");
@@ -184,6 +197,14 @@ void m7_setup()
     // Servidor
     server.begin();
     Serial.println("HTTP Server arrancado.");
+
+    // Inicialización de variables
+
+    for (int i = 0; i < 12; i++)
+    {
+        sensorDataM7.rpms[i] = 0;
+        sensorDataM7.hzs[i] = 0;
+    }
 }
 
 void m7_loop()
