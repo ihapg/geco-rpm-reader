@@ -17,7 +17,7 @@ volatile bool newData[12];
 const unsigned long TIMEOUT = 12000;
 
 // Estructura con datos
-SensorData sensorDataM4;
+SensorData sensorsM4;
 
 static bool ledStatus = false;
 
@@ -25,7 +25,7 @@ static bool ledStatus = false;
 // Función bindeada por RPC para enviar datos a CM7
 SensorData getData()
 {
-    return sensorDataM4;
+    return sensorsM4;
 }
 
 // Función base para gestionar interrupciones
@@ -47,7 +47,7 @@ void (*HANDLERS_LIST[12])() = {
 // Función de actualización de sensores
 void updateSensors()
 {
-    for (int i = 0; i < (sizeof(newData) / sizeof(newData[0])); i++)
+    for (size_t i = 0; i < (sizeof(newData) / sizeof(newData[0])); i++)
     {
         if (newData[i])
         {
@@ -57,9 +57,11 @@ void updateSensors()
             if (intervalCopy > 0)
             {
                 float sec = intervalCopy * 1e-6;
-                sensorDataM4.hzs[i] = (1 / sec) * 10;
-                sensorDataM4.rpms[i] = sensorDataM4.hzs[i] * 6;
-                sensorDataM4.lastUpdate[i] = millis();
+                float hz = (1 / sec) * 10;
+
+                sensorsM4.sensors[i].hz = hz;
+                sensorsM4.sensors[i].rpm = hz * 6;
+                sensorsM4.sensors[i].lastUpdate = millis();
             }
         }
     }
@@ -70,13 +72,23 @@ void checkTimeouts()
 {
     unsigned long now = millis();
 
-    for (int i = 0; i < (sizeof(sensorDataM4.rpms) / sizeof(sensorDataM4.rpms[0])); i++)
+    // for (int i = 0; i < (int)(sizeof(sensorsM4.sensors) / sizeof(sensorsM4.sensors[0])); i++)
+    // {
+    //     if (sensorsM4.sensors[i].rpm > 0 && (now - sensorsM4.sensors[i].lastUpdate) > TIMEOUT)
+    //     {
+    //         sensorsM4.sensors[i].rpm = 0;
+    //         sensorsM4.sensors[i].hz = 0;
+    //         sensorsM4.sensors[i].lastUpdate = now;
+    //     }
+    // }
+
+    for (auto &sensor : sensorsM4.sensors)
     {
-        if (sensorDataM4.rpms[i] > 0 && (now - sensorDataM4.lastUpdate[i]) > TIMEOUT)
+        if (sensor.rpm > 0 && (now - sensor.lastUpdate) > TIMEOUT)
         {
-            sensorDataM4.rpms[i] = 0;
-            sensorDataM4.hzs[i] = 0;
-            sensorDataM4.lastUpdate[i] = now;
+            sensor.rpm = 0;
+            sensor.hz = 0;
+            // sensor.lastUpdate = now;
         }
     }
 }
@@ -100,29 +112,37 @@ void m4_setup()
     pinMode(LEDB, OUTPUT);
     digitalWrite(LEDB, HIGH);
 
+    unsigned long startMicros = micros();
+    unsigned long startMillis = millis();
+
     // PINS de los sensores
-    for (int i = 0; i < (sizeof(SENSOR_PINS) / sizeof(SENSOR_PINS[0])); i++)
+    for (size_t i = 0; i < (sizeof(SENSOR_PINS) / sizeof(SENSOR_PINS[0])); i++)
     {
         pinMode(SENSOR_PINS[i], INPUT_PULLUP);
         int irq = digitalPinToInterrupt(SENSOR_PINS[i]);
         if (irq != NOT_AN_INTERRUPT)
-        {
             attachInterrupt(irq, HANDLERS_LIST[i], RISING);
-        }
-        // gestionar error else/?
+
+        // Inicialización variables de datos
+        lastInterrupt[i] = startMicros;
+        sensorsM4.sensors[i].id = i + 1;
+        sensorsM4.sensors[i].lastUpdate = startMillis;
+        sensorsM4.sensors[i].rpm = 0;
+        sensorsM4.sensors[i].hz = 0;
     }
 
     // Inicialización variables de datos
-    unsigned long startMicros = micros();
-    unsigned long startMillis = millis();
+    // unsigned long startMicros = micros();
+    // unsigned long startMillis = millis();
+    // for (int i = 0; i < (int)(sizeof(SENSOR_PINS) / sizeof(SENSOR_PINS[0])); i++)
+    // {
+    //     lastInterrupt[i] = startMicros;
 
-    for (int i = 0; i < 12; i++)
-    {
-        lastInterrupt[i] = startMicros;
-        sensorDataM4.lastUpdate[i] = startMillis;
-        sensorDataM4.rpms[i] = 0;
-        sensorDataM4.hzs[i] = 0;
-    }
+    //     sensorsM4.sensors[i].id = i;
+    //     sensorsM4.sensors[i].lastUpdate = startMillis;
+    //     sensorsM4.sensors[i].rpm = 0;
+    //     sensorsM4.sensors[i].hz = 0;
+    // }
 }
 
 void m4_loop()

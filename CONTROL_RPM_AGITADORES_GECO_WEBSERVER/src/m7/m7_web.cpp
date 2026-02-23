@@ -4,6 +4,7 @@
 #include <RPC.h>
 #include <PortentaEthernet.h>
 #include <Ethernet.h>
+#include <ArduinoJson.h>
 
 #include "shared.h"
 #include "SDMMCBlockDevice.h"
@@ -34,13 +35,15 @@ bool ethernet_check = false;
 bool rpc_check = false;
 
 // Estructura con datos
-SensorData sensorDataM7;
+SensorData sensorsM7;
 
 // === Funciones ===
 // Función que devuelve el archivo solicitado de la SD
-void serveFile(EthernetClient &client, const char *path, const char *mime) {
+void serveFile(EthernetClient &client, const char *path, const char *mime)
+{
   FILE *file = fopen(path, "r");
-  if (!file) {
+  if (!file)
+  {
     client.println("HTTP/1.1 404 Not Found\r\n\r\n");
     return;
   }
@@ -50,10 +53,11 @@ void serveFile(EthernetClient &client, const char *path, const char *mime) {
   client.println(mime);
   client.println();
 
-  char buf[128];
+  char buf[512];
   size_t n;
 
-  while ((n = fread(buf, 1, sizeof(buf), file)) > 0) {
+  while ((n = fread(buf, 1, sizeof(buf), file)) > 0)
+  {
     client.write((uint8_t *)buf, n);
   }
 
@@ -61,12 +65,17 @@ void serveFile(EthernetClient &client, const char *path, const char *mime) {
 }
 
 // Función que devuelve los datos de los sensores en formato JSON
-void serveJSON(EthernetClient &client) {
+void serveJSON(EthernetClient &client)
+{
+
+  // Creacion documento JSON que se enviará
+  JsonDocument doc;
 
   try
   {
-    auto result = RPC.call("get_data").as<SensorData>();
-    sensorDataM7 = result;
+    // auto result = RPC.call("get_data").as<SensorData>();
+    // sensorsM7 = result;
+    sensorsM7 = RPC.call("get_data").as<SensorData>();
   }
   catch (__exception ex)
   {
@@ -74,40 +83,64 @@ void serveJSON(EthernetClient &client) {
     Serial.println(ex.name);
   }
 
-  client.println("HTTP/1.1 200 OK");
+  /* client.println("HTTP/1.1 200 OK");
   client.println("Content-Type: application/json");
+  client.println("Access-Control-Allow-Origin: *"); // evitar bloqueos del navegador
   client.println("Connection: close");
   client.println();
-  client.print("[");
 
-  for (int i = 0; i < 12; i++) {
+  // Metodo con client.print()
+  client.print("[");
+  for (size_t i = 0; i < (sizeof(sensorsM7.sensors) / sizeof(sensorsM7.sensors[0])); i++)
+  {
     client.print("\t{\"sensor\":");
-    client.print(i + 1);
+    client.print(sensorsM7.sensors[i].id);
     client.print(",\"rpm\":");
-    client.print(sensorDataM7.rpms[i]/* (50.0 + i) */, 2);
+    client.print(sensorsM7.sensors[i].rpm, 2);
     client.print(",\"hz\":");
-    client.print(sensorDataM7.hzs[i]/* (10.0 + i) */, 2);
+    client.print(sensorsM7.sensors[i].hz, 2);
     client.print("}");
 
-    if (i < 11) client.print(",");
+    if (i < 11)
+      client.print(",");
+  }
+  client.print("]"); */
+
+  // Metodo con ArduinoJson
+  for (auto &sensor : sensorsM7.sensors)
+  {
+    JsonObject obj = doc.add<JsonObject>();
+    obj["sensor"] = sensor.id;
+    obj["rpm"] = sensor.rpm;
+    obj["hz"] = sensor.hz;
   }
 
-  client.print("]");
+  client.println("HTTP/1.1 200 OK");
+  client.println("Content-Type: application/json");
+  client.println("Access-Control-Allow-Origin: *"); // evitar bloqueos del navegador
+  client.println("Connection: close");
+  client.println();
+
+  // Serializar directamente al cliente el JsonDocument
+  serializeJson(doc, client);  
 }
 
 // Función para comprobar el estado de la SD
-bool checkSD() {
+bool checkSD()
+{
   Serial.println("Mounting SDCARD...");
 
   int err = fs.mount(&block_device);
-  if (err == 0) {
+  if (err == 0)
+  {
     Serial.println("SDCard OK.");
     return true;
   }
 
   Serial.println("No filesystem found, formatting... ");
   err = fs.reformat(&block_device);
-  if (err == 0) {
+  if (err == 0)
+  {
     Serial.println("SDCard formatted and mounted.");
     return true;
   }
@@ -117,23 +150,29 @@ bool checkSD() {
 }
 
 // Función para imprimir la información de la SD
-void printSDInfo() {
+void printSDInfo()
+{
   DIR *dir;
   struct dirent *ent;
   int dirIndex = 0;
 
   Serial.println("List SDCARD content: ");
-  if ((dir = opendir("/sd")) != NULL) {
-    while ((ent = readdir(dir)) != NULL) {
+  if ((dir = opendir("/sd")) != NULL)
+  {
+    while ((ent = readdir(dir)) != NULL)
+    {
       Serial.println(ent->d_name);
       dirIndex++;
     }
     closedir(dir);
-  } else {
+  }
+  else
+  {
     Serial.println("Error opening SDCARD\n");
     return;
   }
-  if (dirIndex == 0) {
+  if (dirIndex == 0)
+  {
     Serial.println("Empty SDCARD");
   }
 }
@@ -141,77 +180,77 @@ void printSDInfo() {
 // === Ejecucion ===
 void m7_setup()
 {
-    Serial.begin(115200);
-    // dev>prod
-    while (!Serial);
+  Serial.begin(115200);
+  // dev>prod
+  while (!Serial)
+    ;
 
-    // Forzar arranque limpio de CM4
-    LL_RCC_ForceCM4Boot();
+  // Forzar arranque limpio de CM4
+  LL_RCC_ForceCM4Boot();
 
-    // LED
-    pinMode(LEDG, OUTPUT);
-    digitalWrite(LEDG, HIGH);
+  // LED
+  pinMode(LEDG, OUTPUT);
+  digitalWrite(LEDG, HIGH);
 
-    
-    pinMode(LEDR, OUTPUT);
-    digitalWrite(LEDR, HIGH);
+  pinMode(LEDR, OUTPUT);
+  digitalWrite(LEDR, HIGH);
 
-    // RPC
-    if (RPC.begin())
-    {
-      rpc_check = true;
-      Serial.println("[M7] RPC conectado con éxito.");
-    }
-    else
-    {
-      rpc_check = false;
-      Serial.println("[M7] Error: RPC no conectado!");
-    }
+  // RPC
+  if (RPC.begin())
+  {
+    rpc_check = true;
+    Serial.println("[RPC] conectado con éxito.");
+  }
+  else
+  {
+    rpc_check = false;
+    Serial.println("[RPC] Error: RPC no conectado!");
+  }
 
-    // SD
-    if (!checkSD())
-    {
-        Serial.println("SD no disponible.");
-    }
-    else
-    {
-        Serial.println("SD conectada.");
-        printSDInfo();
-    }
+  // SD
+  if (!checkSD())
+  {
+    Serial.println("[SD] no disponible.");
+  }
+  else
+  {
+    Serial.println("[SD] conectada.");
+    printSDInfo();
+  }
 
-    // Red
-    Ethernet.begin(ip);
-    delay(500);
+  // Red
+  Ethernet.begin(ip);
+  delay(500);
 
-    if (Ethernet.linkStatus() == LinkON)
-    {
-        ethernet_check = true;
-        Serial.print("Ethernet OK, IP: ");
-        Serial.println(Ethernet.localIP());
-    }
-    else
-    {
-        Serial.println("Ethernet no conectado");
-    }
+  if (Ethernet.linkStatus() == LinkON)
+  {
+    ethernet_check = true;
+    Serial.print("[Ethernet] OK, IP: ");
+    Serial.println(Ethernet.localIP());
+  }
+  else
+  {
+    Serial.println("[Ethernet] no conectado");
+  }
 
-    // Servidor
-    server.begin();
-    Serial.println("HTTP Server arrancado.");
+  // Servidor
+  server.begin();
+  Serial.println("[HTTP] Server arrancado.");
 
-    // Inicialización de variables
-
-    for (int i = 0; i < 12; i++)
-    {
-        sensorDataM7.rpms[i] = 0;
-        sensorDataM7.hzs[i] = 0;
-    }
+  // Inicialización de variables
+  for (auto &sensor : sensorsM7.sensors)
+  {
+    sensor.id = 0;
+    sensor.rpm = 0;
+    sensor.hz = 0;
+  }
 }
 
 void m7_loop()
 {
   digitalWrite(LEDG, (millis() / 1000) % 2);
 
-  // Comprobar si hay nuevos clientes
+  /* // Comprobar si hay nuevos clientes
   EthernetClient newClient = server.accept();
   if (newClient)
   {
@@ -232,7 +271,7 @@ void m7_loop()
     {
       Serial.println("Máximo de clientes alcanzado. Rechazando nuevo cliente.");
       newClient.stop();
-    }    
+    }
   }
 
   // Recibir peticiones de clientes
@@ -283,8 +322,43 @@ void m7_loop()
       clients[i] = EthernetClient(); // limpiar cliente
       Serial.println("Cliente desconectado");
     }
-    
-    // Comprobacion visual RPC
-    digitalWrite(LEDR, rpc_check ? LOW : HIGH);
+  } */
+
+  // Gestión individual de clientes
+  EthernetClient client = server.accept();
+
+  if (client)
+  {
+    Serial.println("Cliente conectado.");
+
+    unsigned long timeout = millis();
+    while (client.connected() && !client.available() && (millis() - timeout) < 1000)
+      ;
+
+    if (client.available())
+    {
+      String request = client.readStringUntil('\r');
+      client.flush(); // limpiar resto de la peticion (headers)
+
+      int start = request.indexOf(' ') + 1;
+      int end = request.indexOf(' ', start);
+      String path = request.substring(start, end);
+
+      if (path == "/" || path == "/index.html")
+        serveFile(client, "/sd/index.html", "text/html");
+      else if (path == "/script.js")
+        serveFile(client, "/sd/script.js", "application/javascript");
+      else if (path == "/data.json")
+        serveJSON(client);
+      else
+        client.println("HTTP/1.1 404 Not Found \r\n\r\n");
+    }
+
+    delay(10);
+    client.stop();
+    Serial.println("Cliente cerrado.");
   }
+
+  // Comprobacion visual RPC
+  digitalWrite(LEDR, rpc_check ? LOW : HIGH);
 }
