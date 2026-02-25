@@ -1,6 +1,7 @@
 // =========== VARIABLES ===========
 // URL para recibir los datos (No es necesario cambiar por la ruta de servidor Arduino, con el endpoint de la API es suficiente)
-const url = "/data.json";
+// http://169.254.1.2
+const url = "/api/sensors";
 // Intervalo de refresco en ms
 const fetchInterval = 1000;
 // Timeout para cada petición fetch en ms
@@ -24,7 +25,7 @@ function fillTable(data) {
         fila.style.backgroundColor = colors[index % 2];
 
         const celdaClave = document.createElement('td');
-        celdaClave.textContent = sensor.sensor;
+        celdaClave.textContent = sensor.id;
 
         const celdaRPM = document.createElement('td');
         celdaRPM.textContent = Number(sensor.rpm).toFixed(2);

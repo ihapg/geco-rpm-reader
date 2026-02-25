@@ -21,14 +21,8 @@ struct SensorDataInd
 // Estructura de conjunto de sensores
 struct SensorData
 {
-    // uint32_t ids[];
-    // float rpms[12];
-    // float hzs[12];
-    // unsigned long lastUpdate[12];
-
     SensorDataInd sensors[12];
 
     // Serializacion RPC
-    // MSGPACK_DEFINE_ARRAY(rpms, hzs);
     MSGPACK_DEFINE_ARRAY(sensors);
 };

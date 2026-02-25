@@ -19,10 +19,8 @@ const unsigned long TIMEOUT = 12000;
 // Estructura con datos
 SensorData sensorsM4;
 
-static bool ledStatus = false;
-
 // === Funciones ===
-// Función bindeada por RPC para enviar datos a CM7
+// Función bindeada por RPC para enviar datos a M7
 SensorData getData()
 {
     return sensorsM4;
@@ -72,42 +70,24 @@ void checkTimeouts()
 {
     unsigned long now = millis();
 
-    // for (int i = 0; i < (int)(sizeof(sensorsM4.sensors) / sizeof(sensorsM4.sensors[0])); i++)
-    // {
-    //     if (sensorsM4.sensors[i].rpm > 0 && (now - sensorsM4.sensors[i].lastUpdate) > TIMEOUT)
-    //     {
-    //         sensorsM4.sensors[i].rpm = 0;
-    //         sensorsM4.sensors[i].hz = 0;
-    //         sensorsM4.sensors[i].lastUpdate = now;
-    //     }
-    // }
-
     for (auto &sensor : sensorsM4.sensors)
     {
         if (sensor.rpm > 0 && (now - sensor.lastUpdate) > TIMEOUT)
         {
             sensor.rpm = 0;
             sensor.hz = 0;
-            // sensor.lastUpdate = now;
         }
     }
-}
-
-// Función de prueba RPC
-bool getLed()
-{
-    return ledStatus;
 }
 
 // === Ejecución ===
 void m4_setup()
 {
-    // Retardo para darle tiempo a RPC en CM7
+    // Retardo para darle tiempo a RPC en M7
     delay(200);
 
     RPC.begin();
     RPC.bind("get_data", getData);
-    RPC.bind("test_led", getLed);
 
     pinMode(LEDB, OUTPUT);
     digitalWrite(LEDB, HIGH);
@@ -130,19 +110,6 @@ void m4_setup()
         sensorsM4.sensors[i].rpm = 0;
         sensorsM4.sensors[i].hz = 0;
     }
-
-    // Inicialización variables de datos
-    // unsigned long startMicros = micros();
-    // unsigned long startMillis = millis();
-    // for (int i = 0; i < (int)(sizeof(SENSOR_PINS) / sizeof(SENSOR_PINS[0])); i++)
-    // {
-    //     lastInterrupt[i] = startMicros;
-
-    //     sensorsM4.sensors[i].id = i;
-    //     sensorsM4.sensors[i].lastUpdate = startMillis;
-    //     sensorsM4.sensors[i].rpm = 0;
-    //     sensorsM4.sensors[i].hz = 0;
-    // }
 }
 
 void m4_loop()
