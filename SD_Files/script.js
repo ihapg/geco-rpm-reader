@@ -1,7 +1,7 @@
-// =========== VARIABLES ===========
+// === Variables ===
 // URL para recibir los datos (No es necesario cambiar por la ruta de servidor Arduino, con el endpoint de la API es suficiente)
-// http://169.254.1.2
-const url = "/api/sensors";
+// Añadir a URL para desarrollo en local: http://169.254.1.2
+const url = "http://169.254.1.2/api";
 // Intervalo de refresco en ms
 const fetchInterval = 1000;
 // Timeout para cada petición fetch en ms
@@ -13,7 +13,7 @@ let lastDataJSON = null;
 const colors = ["#D3D3D3", "#9B9B9B"];
 
 
-// =========== FUNCTIONS ===========
+// === Funciones ===
 
 function fillTable(data) {
     const tabla = document.getElementById('table_data');
@@ -54,10 +54,9 @@ async function refreshTableData() {
     if (isFetching) return;
     isFetching = true;
     try {
-        const response = await fetchWithTimeout(url);
-        if (!response.ok) {
-            throw new Error(response.status);
-        }
+        let req = url.concat("/sensors");
+        const response = await fetchWithTimeout(req);
+        if (!response.ok) throw new Error(response.status);
         const data = await response.json();
 
         // Evitar actualizar el DOM si los datos no han cambiado
@@ -79,7 +78,69 @@ async function refreshTableData() {
     }
 }
 
-// =========== SCRIPT ===========
+/**
+ * getFileNameFromResponse
+ * Extrae el nombre de archivo desde la cabecera `Content-Disposition` de la respuesta.
+ * - Soporta formatos simples como: `filename="datos.csv"` y RFC5987 `filename*=UTF-8''datos%20con%20espacios.csv`.
+ * - Devuelve `null` si la cabecera no está presente o no contiene un filename.
+ * - NOTA: en peticiones cross-origin el servidor debe exponer la cabecera mediante
+ *   `Access-Control-Expose-Headers: Content-Disposition` para que el navegador la pueda leer.
+ */
+function getFileNameFromResponse(response) {
+    const cd = response.headers.get('content-disposition');
+    if (!cd) return null;
+    const match = cd.match(/filename\*?=(?:UTF-8''|\")?([^;\"]+)/i);
+    return match ? decodeURIComponent(match[1]) : null;
+}
+
+/**
+ * downloadCSV
+ * Solicita el CSV al servidor y fuerza la descarga en el navegador.
+ * Flujo principal:
+ * 1. Evita solapamientos con `isFetching`.
+ * 2. Deshabilita el botón de descarga para prevenir dobles clics.
+ * 3. Realiza `fetchWithTimeout` al endpoint `/download_csv`.
+ * 4. Convierte la respuesta a `Blob` y crea un `objectURL` temporal.
+ * 5. Extrae el nombre de archivo (si el servidor lo proporciona) con
+ *    `getFileNameFromResponse`, usa `data.csv` por defecto.
+ * 6. Crea un `<a>` oculto, le asigna `href`+`download` y simula el clic para iniciar la descarga.
+ * 7. Limpia el `objectURL` y vuelve a habilitar el botón.
+ * Errores: se registran en consola; no se propagan.
+ */
+async function downloadCSV() {
+    if (isFetching) return;
+    const btn = document.getElementById('btnDownload');
+    if (btn) btn.disabled = true;
+
+    try {
+        isFetching = true;
+
+        const req = url.concat("/download_csv");
+        // const req = `${url}/download_csv`;
+
+        const response = await fetchWithTimeout(req);
+        if (!response.ok) throw new Error(response.status);
+        const blob = await response.blob();
+        const filename = getFileNameFromResponse(response) || 'data.csv';
+        const a = document.createElement('a');
+        const objectUrl = URL.createObjectURL(blob);
+        a.href = objectUrl;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        URL.revokeObjectURL(objectUrl);
+    } catch (error) {
+        console.error('Error al descargar el archivo: ', error);
+    } finally {
+        isFetching = false;
+        if (btn) btn.disabled = false;
+    }
+}
+
+// === Ejecución ===
+const btnDownload = document.getElementById('btnDownload');
+if (btnDownload) btnDownload.addEventListener('click', downloadCSV);
 
 refreshTableData();
 

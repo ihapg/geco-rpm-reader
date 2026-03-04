@@ -5,7 +5,7 @@
     <meta charset="UTF-8" />
     <title>Tests HTML</title>
     <!-- local dev: /SD_Files + -->
-    <script src="/script.js" defer></script>
+    <script src="/SD_Files/script.js" defer></script>
     <style>
         body {
             /* background: #f6f7fb; */
@@ -32,11 +32,22 @@
             border: 1px solid #000;
             width: 33%;
         }
+
+        #buttonsDiv {
+            margin: 10px;
+            padding-right: 10px;
+            display: flex;
+            justify-content: flex-end;
+            align-items: center;
+        }
     </style>
 </head>
 
 <body>
     <h1>Agitadores GeCo</h1>
+    <div id="buttonsDiv">
+        <button id="btnDownload">Descargar CSV</button>
+    </div>
     <table id="table">
         <thead>
             <tr>
@@ -45,13 +56,7 @@
                 <th>Hz</th>
             </tr>
         </thead>
-        <tbody id="table_data">
-            <tr>
-                <td>Agitador 1</td>
-                <td>100.14</td>
-                <td>50</td>
-            </tr>
-        </tbody>
+        <tbody id="table_data"></tbody>
     </table>
 
 </body>

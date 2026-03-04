@@ -1,9 +1,8 @@
 // Adquisicion de datos
+#include "m4_acq.h"
 
 #include <Arduino.h>
 #include <RPC.h>
-
-#include "shared.h"
 
 // === Variables ===
 // Definicion de pines para los sensores
@@ -105,7 +104,7 @@ void m4_setup()
 
         // Inicialización variables de datos
         lastInterrupt[i] = startMicros;
-        sensorsM4.sensors[i].id = i + 1;
+        sensorsM4.sensors[i].id = "AG" + std::to_string(i + 1);
         sensorsM4.sensors[i].lastUpdate = startMillis;
         sensorsM4.sensors[i].rpm = 0;
         sensorsM4.sensors[i].hz = 0;

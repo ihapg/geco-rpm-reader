@@ -9,7 +9,7 @@
 // Estructura de datos de sensor individual
 struct SensorDataInd
 {
-    uint32_t id;
+    std::string id;
     float rpm;
     float hz;
     unsigned long lastUpdate;
@@ -22,7 +22,8 @@ struct SensorDataInd
 struct SensorData
 {
     SensorDataInd sensors[12];
+    bool record;
 
     // Serializacion RPC
-    MSGPACK_DEFINE_ARRAY(sensors);
+    MSGPACK_DEFINE_ARRAY(sensors, record);
 };
