@@ -29,8 +29,8 @@ EthernetServer server(80);
 SDMMCBlockDevice block_device;
 mbed::FATFileSystem fs("sd");
 
-// Tiempo refresco de datos (RPC)
-const uint32_t RPC_UPDATE_INTERVAL = 1000; // ms
+// Tiempo refresco de datos en ms (RPC)
+const uint32_t RPC_UPDATE_INTERVAL = 1000;
 static uint32_t lastRPC = 0;
 
 // Ajuste y sincronización de fecha y hora (NTP)
@@ -41,10 +41,18 @@ EthernetUDP ntpUDP;
 // NTP PC: 169.254.112.33 adaptador Ethernet del PC
 NTPClient timeClient(ntpUDP, "169.254.112.33", 3600);
 
-const uint32_t NTP_UPDATE_INTERVAL = 43200000; // ms (12h)
+const uint32_t NTP_UPDATE_INTERVAL = 43200000; // 12h en ms
 static uint32_t lastNTPSync = 0;
 
-const char *logPath = "/sd/log_sensores.csv";
+// Log de datos
+bool isLogging = false;
+String logRoute = "";
+String lastLogFile = "";
+FILE* logFile = nullptr;
+
+// Variables para controlar un pequeño delay antes de cerrar el archivo
+static uint32_t stopTimer = 0;
+const uint32_t STOP_DELAY = 3000;
 
 // Comprobaciones de servicios
 bool sd_check = false;
@@ -156,7 +164,6 @@ void m7_setup()
     // NTP
     ntpUDP.begin(8888);
     timeClient.begin();
-    //pasar timeClient como argumento
     ntp_check = syncTimeNTP(timeClient);
   }
   else
@@ -175,9 +182,52 @@ void m7_loop()
   if (millis() - lastRPC > RPC_UPDATE_INTERVAL)
   {
     sensorsM7 = RPC.call("get_data").as<SensorData>();
-    logToSD(sensorsM7);
-
     lastRPC = millis();
+
+    // Registro en log de datos
+    if (sd_check)
+    {
+      bool isRunning = false;
+      for (auto &sensor : sensorsM7.sensors)
+      {
+        if (sensor.rpm > 0.0f)
+        {
+          isRunning = true;
+          break;
+        }
+      }
+
+      if (isRunning)
+      {
+        if (!isLogging)
+        {
+          // Inicio de grabación
+          isLogging = true;
+          lastLogFile = getLogFileName(); 
+          logRoute = "/sd/" + lastLogFile;
+          logFile = fopen(logRoute.c_str(), "a+"); // "a" = "append" adición de escritura y "+" permite lectura (read, write, append)
+
+          Serial.print(">>> Iniciando grabación: ");
+          Serial.println(lastLogFile);
+        }
+        // Seguir con grabación
+        stopTimer = millis();
+        if (logFile) logToSD(logFile, sensorsM7);
+      }
+      else
+      {
+        if (isLogging && (millis() - stopTimer > STOP_DELAY))
+        {
+          // Finalizar grabación
+          isLogging = false;
+          logRoute = "";
+          if (logFile) fclose(logFile);
+          logFile = nullptr;
+
+          Serial.println("<<< Grabación finalizada.");
+        }
+      }
+    }
   }
 
   // Sincronización de tiempo
@@ -195,13 +245,14 @@ void m7_loop()
   if (client)
   {
     unsigned long timeout = millis();
-    while (client.connected() && !client.available() && (millis() - timeout) < 1000)
+    while (client.connected() && !client.available() && (millis() - timeout) < 3000)
       ;
 
     if (client.available())
       processRequest(client);
 
-    delay(10);
+    client.flush();
+    delay(100);
     client.stop();
   }
 }

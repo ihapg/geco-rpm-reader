@@ -6,9 +6,6 @@
 #include <NTPClient.h>
 #include <mbed.h>
 
-// EthernetUDP ntpUDP;
-// NTPClient timeClient(ntpUDP, "169.254.112.33", 3600);
-
 String getTimeStamp()
 {
   time_t seconds = time(NULL);
@@ -19,14 +16,24 @@ String getTimeStamp()
   return String(buffer);
 }
 
-String getLogFileName()
+String getDate()
 {
   time_t seconds = time(NULL);
   struct tm *t = localtime(&seconds);
   char buffer[32];
 
+  strftime(buffer, sizeof(buffer), "%d/%m/%Y", t);
+  return String(buffer);  
+}
+
+String getLogFileName()
+{
+  time_t seconds = time(NULL);
+  struct tm *t = localtime(&seconds);
+  char buffer[64];
+
   // Formato: GECO_THRUSTER_YYYYMMDD_HHMMSS.log
-  strftime(buffer, sizeof(buffer), "GECO_THRUSTER_%Y%m%d.log", t);
+  strftime(buffer, sizeof(buffer), "GECO_THRUSTER_%Y%m%d_%H%M%S.log", t);
   return String(buffer);
 }
 
@@ -48,62 +55,57 @@ bool syncTimeNTP(NTPClient &timeClient)
   return false;
 }
 
-void logToSD(SensorData &sensorsData)
+void logToSD(FILE* file, SensorData &sensorsData)
 {
-  // arreglar error nombre hora, aislando variable de nombre
-  String dynamicPath = "/sd/" + getLogFileName();
-
   // "a" = "append" adición de escritura y "+" permite lectura (read, write, append)
-  FILE *file = fopen(dynamicPath.c_str(), "a+");
-  if (!file)
-    return;
+  // FILE *file = fopen(path, "a+");
+  if (!file) return;
 
   fseek(file, 0, SEEK_END);
 
   // --- 1. CABECERA (Si el archivo es nuevo) ---
   if (ftell(file) == 0)
   {
-    fprintf(file, "%-10s", "Time(s)");
-    // Cabeceras RPM
+    // Cabecera de inicio con fecha y hora
+    String startDate = getDate() + " " + getTimeStamp();
+
+    fprintf(file, "%s", "START RECORD:");
+    fprintf(file, "\t%s", startDate.c_str());
+    fprintf(file, "\r\n");
+
+    // Cabecera datos
+    fprintf(file, "%s", "Time");
+
     for (auto &sensor : sensorsData.sensors)
     {
       std::string headerName = sensor.id + "(rpm)";
-      fprintf(file, "\t%-10s", headerName.c_str());
+      fprintf(file, "\t%s", headerName.c_str());
     }
-    // Cabeceras HZ
+    
     for (auto &sensor : sensorsData.sensors)
     {
       std::string headerName = sensor.id + "(hz)";
-      fprintf(file, "\t%-10s", headerName.c_str());
+      fprintf(file, "\t%s", headerName.c_str());
     }
     fprintf(file, "\r\n");
   }
 
   // --- 2. DATOS (Una sola fila por marca de tiempo) ---
-  fprintf(file, "%-10s", getTimeStamp().c_str());
+  fprintf(file, "%s", getTimeStamp().c_str());
 
   // Valores RPM
   for (auto &sensor : sensorsData.sensors)
   {
-    fprintf(file, "\t%-10.2f", sensor.rpm);
+    fprintf(file, "\t%.2f", sensor.rpm);
   }
 
   // Valores HZ
   for (auto &sensor : sensorsData.sensors)
   {
-    fprintf(file, "\t%-10.2f", sensor.hz);
+    fprintf(file, "\t%.2f", sensor.hz);
   }
 
   fprintf(file, "\r\n");
   fflush(file);
-  fclose(file);
+  // fclose(file);
 }
-
-/* bool setupNTP()
-{
-    ntpUDP.begin(8888);
-    timeClient.begin();
-
-    bool syncronized = syncTimeNTP();
-    return syncronized;
-} */

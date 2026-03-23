@@ -1,7 +1,12 @@
 #include "shared.h"
 #include "api_handlers.h"
+#include "web_router.h"
 
-extern SensorData sensorsM7; // viene del main_m7.cpp actualizado por RPC
+extern SensorData sensorsM7; // viene del m7_web.cpp actualizado por RPC
+extern String lastLogFile;
+extern bool isLogging;
+
+std::vector<String> nameLogs;
 
 // Función para generar archivo JSON respuesta
 void sendJsonResponse(EthernetClient& client, const JsonDocument& doc)
@@ -16,7 +21,7 @@ void sendJsonResponse(EthernetClient& client, const JsonDocument& doc)
 }
 
 // Función que recopila datos de los sensores y los envía en archivo JSON
-void handleSensors(EthernetClient& client)
+void handleSensors(EthernetClient& client, String path)
 {
     JsonDocument doc;
 
@@ -32,11 +37,94 @@ void handleSensors(EthernetClient& client)
 }
 
 // Función que recopila el estado del programa y lo envía en archivo JSON
-void handleStatus(EthernetClient& client)
+void handleStatus(EthernetClient& client, String path)
 {
     JsonDocument doc;
     doc["status"] = "ok";
     doc["uptime"] = millis() / 1000;
 
+    sendJsonResponse(client, doc);
+}
+
+// Función para listar los archivos log guardados en la SD
+void handleListLogs(EthernetClient& client, String path)
+{
+    // Recopilación de logs
+    // std::vector<String> nameLogs;
+    nameLogs.clear();
+
+    DIR *dir = opendir("/sd");
+    struct dirent *ent;
+
+    if (dir != NULL)
+    {
+        while ((ent = readdir(dir)) != NULL)
+        {
+            String name = ent->d_name;
+            if (name.endsWith(".log") && !(isLogging && name == lastLogFile))
+            {
+                nameLogs.push_back(name);
+            }
+        }
+        closedir(dir);
+    }
+
+    // Ordenar lista de logs por nombre descendente (más recientes primero)
+    std::sort(nameLogs.begin(), nameLogs.end(), [](const String& a, const String&b) {
+        return a > b;
+    });
+
+    // Generación de respuesta JSON y escritura en CSV
+    JsonDocument doc;
+    JsonArray files = doc.to<JsonArray>();
+    for (auto &name : nameLogs)
+    {
+        files.add(name);
+    }    
+
+    sendJsonResponse(client, doc);
+}
+
+// Función para descargar archivo log en el cliente
+void handleDownloadLog(EthernetClient& client, String path)
+{
+    int index = path.indexOf("file=");
+    if (index == -1)
+    {
+
+        client.println("HTTP/1.1 400 Bad Request\r\n\r\n");
+        return;
+    }
+    String fileName = path.substring(index + 5);
+    String fullPath = "/sd/" + fileName;
+
+    serveFile(client, fullPath.c_str(), "text/csv", fileName.c_str());
+}
+
+// Función para borrar los archivos log de la SD
+void handleClearLogs(EthernetClient& client, String path)
+{
+    int deletedCount = 0;
+    DIR *dir = opendir("/sd");
+    struct dirent *ent;
+
+    if (dir != NULL)
+    {
+        while ((ent = readdir(dir)) != NULL)
+        {
+            String name = ent->d_name;
+            if (name.endsWith(".log") && name != lastLogFile)
+            {
+                String fullPath = "/sd/" + name;
+                if (remove(fullPath.c_str()) == 0) deletedCount++;                
+            }
+            
+        }
+        closedir(dir);
+    }
+
+    JsonDocument doc;
+    doc["status"] = "success";
+    doc["deleted"] = deletedCount;
     sendJsonResponse(client, doc);
 }
