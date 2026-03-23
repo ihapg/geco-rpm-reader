@@ -4,6 +4,6 @@
 #include <NTPClient.h>
 
 // String getTimeStamp();
-// String getLogFileName();
+String getLogFileName();
 bool syncTimeNTP(NTPClient& timeClient);
-void logToSD(SensorData& sensorsData);
+void logToSD(FILE* file, SensorData& sensorsData);

@@ -22,8 +22,7 @@ struct SensorDataInd
 struct SensorData
 {
     SensorDataInd sensors[12];
-    bool record;
 
     // Serializacion RPC
-    MSGPACK_DEFINE_ARRAY(sensors, record);
+    MSGPACK_DEFINE_ARRAY(sensors);
 };
