@@ -1,5 +1,5 @@
 #include "shared.h"
-#include "api_handlers.h"
+#include "../api/api_handlers.h"
 
 // Estructura para los endpoints de la API
 struct Route

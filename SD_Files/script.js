@@ -4,11 +4,17 @@
 const url = "http://169.254.1.2/api";
 // Intervalo de refresco en ms
 const fetchInterval = 1000;
+// Intervalo de comprobación de estado de logging en ms (no cambia frecuentemente)
+const statusInterval = 5000;
 // Timeout para cada petición fetch en ms
 const fetchTimeout = 4000;
 
 let isFetching = false;
 let isCheckingStatus = false;
+
+// Contadores de error para backoff exponencial
+let sensorsErrorCount = 0;
+let statusErrorCount = 0;
 
 let isLogging = false;
 let lastDataJSON = null;
@@ -71,13 +77,17 @@ async function refreshTableData() {
             fillTable(data);
         }
     } catch (error) {
+        sensorsErrorCount++;
         const status = document.getElementById('status');
         if (status) status.textContent = 'Error de conexión: ' + (error.name === 'AbortError' ? 'timeout' : error);
         console.error('Error al obtener datos:', error);
     } finally {
         isFetching = false;
-        // Programa siguiente intento tras intervalo
-        setTimeout(refreshTableData, fetchInterval);
+        // Backoff exponencial: duplica el intervalo por cada fallo consecutivo (cap 30 s)
+        const delay = sensorsErrorCount === 0
+            ? fetchInterval
+            : Math.min(fetchInterval * Math.pow(2, sensorsErrorCount), 30000);
+        setTimeout(refreshTableData, delay);
     }
 }
 
@@ -103,17 +113,24 @@ async function checkLoggingStatus() {
     isCheckingStatus = true;
     try {
         const response = await fetchWithTimeout(`${url}/status`);
+        if (!response.ok) throw new Error(response.status);
         const result = await response.json();
 
+        statusErrorCount = 0; // Éxito: resetear backoff
         if (result.logging != isLogging) {
             isLogging = result.logging;
             updateLoggingStatus(isLogging);
         }
     } catch (error) {
-        console.error("Error: " + error.message);
+        statusErrorCount++;
+        console.error("Error al comprobar estado: " + (error.name === 'AbortError' ? 'timeout' : error.message));
     } finally {
         isCheckingStatus = false;
-        setTimeout(checkLoggingStatus, fetchInterval);
+        // Backoff exponencial: duplica el intervalo por cada fallo consecutivo (cap 30 s)
+        const delay = statusErrorCount === 0
+            ? statusInterval
+            : Math.min(statusInterval * Math.pow(2, statusErrorCount), 30000);
+        setTimeout(checkLoggingStatus, delay);
     }
 }
 
@@ -316,4 +333,5 @@ btnClearLogs.onclick = async () => {
 };
 
 refreshTableData();
-checkLoggingStatus();
+// Desfase de 500 ms para evitar rafales simultáneas al servidor
+setTimeout(checkLoggingStatus, 500);

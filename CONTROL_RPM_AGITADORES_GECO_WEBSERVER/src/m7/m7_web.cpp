@@ -33,6 +33,12 @@ mbed::FATFileSystem fs("sd");
 const uint32_t RPC_UPDATE_INTERVAL = 1000;
 static uint32_t lastRPC = 0;
 
+// Gestión multi-slot de clientes HTTP
+static const uint8_t  MAX_CLIENTS       = 5;
+static const uint32_t CLIENT_TIMEOUT_MS = 500;
+static EthernetClient clients[MAX_CLIENTS];
+static uint32_t       clientTimestamp[MAX_CLIENTS] = {0};
+
 // Ajuste y sincronización de fecha y hora (NTP)
 EthernetUDP ntpUDP;
 // (prod)
@@ -124,8 +130,8 @@ void m7_setup()
   Serial.begin(115200);
 
   // (local-dev)
-  // while (!Serial)
-  //   ;
+  while (!Serial)
+    ;
 
   // Forzar arranque limpio de CM4
   LL_RCC_ForceCM4Boot();
@@ -220,20 +226,54 @@ void m7_loop()
   // Actualizar sesión de logging
   loggingSession.update(sensorsM7, sd_check, now);
 
-  // Gestión individual de clientes
-  EthernetClient client = server.accept();
+  // Gestión multi-slot de clientes HTTP (non-blocking)
 
-  if (client)
+  // 1. Aceptar cliente entrante si hay slot libre
+  EthernetClient incoming = server.accept();
+  if (incoming)
   {
-    unsigned long timeout = millis();
-    while (client.connected() && !client.available() && (millis() - timeout) < 200)
-      ;
+    bool placed = false;
+    for (uint8_t i = 0; i < MAX_CLIENTS; i++)
+    {
+      if (!clients[i])
+      {
+        clients[i]         = incoming;
+        clientTimestamp[i] = millis();
+        placed             = true;
+        break;
+      }
+    }
+    if (!placed)
+    {
+      // Sin slot libre: rechazar con respuesta HTTP correcta (nunca reset en seco)
+      incoming.println("HTTP/1.1 503 Service Unavailable\r\nContent-Length: 0\r\nConnection: close\r\n");
+      incoming.flush();
+      incoming.stop();
+    }
+  }
 
-    if (client.available())
-      processRequest(client);
+  // 2. Atender cada slot activo
+  for (uint8_t i = 0; i < MAX_CLIENTS; i++)
+  {
+    if (!clients[i]) continue;
 
-    client.flush();
-    delay(50);
-    client.stop();
+    if (clients[i].available())
+    {
+      // Petición lista: procesar y cerrar limpiamente
+      processRequest(clients[i]);
+      clients[i].flush();
+      clients[i].stop();
+    }
+    else if (!clients[i].connected() || (millis() - clientTimestamp[i]) > CLIENT_TIMEOUT_MS)
+    {
+      // Timeout o desconexión inesperada: responder si el socket sigue vivo
+      if (clients[i].connected())
+      {
+        clients[i].println("HTTP/1.1 503 Service Unavailable\r\nContent-Length: 0\r\nConnection: close\r\n");
+        clients[i].flush();
+      }
+      clients[i].stop();
+    }
+    // else: slot activo dentro del timeout → esperar siguiente iteración
   }
 }
