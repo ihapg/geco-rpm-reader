@@ -114,6 +114,11 @@ class PollingWorker(QtCore.QThread):
         super().__init__()
         self.api = api
         self._running = False
+        # Template policy: tolerate transient network noise, react to sustained failures.
+        self._sensors_err_count = 0
+        self._status_err_count = 0
+        self._sensors_err_threshold = 5
+        self._status_err_threshold = 3
 
     def stop(self):
         self._running = False
@@ -125,9 +130,14 @@ class PollingWorker(QtCore.QThread):
             try:
                 sensors = self.api.get_sensors()
                 if self._running:
+                    self._sensors_err_count = 0
                     self.sensors_ready.emit(sensors)
             except Exception as e:
-                if self._running:
+                self._sensors_err_count += 1
+                if self._running and (
+                    self._sensors_err_count == self._sensors_err_threshold
+                    or self._sensors_err_count % self._sensors_err_threshold == 0
+                ):
                     self.poll_error.emit("/api/sensors", str(e))
 
             cycle += 1
@@ -136,9 +146,11 @@ class PollingWorker(QtCore.QThread):
                 try:
                     status = self.api.get_status()
                     if self._running:
+                        self._status_err_count = 0
                         self.status_ready.emit(status)
                 except Exception as e:
-                    if self._running:
+                    self._status_err_count += 1
+                    if self._running and self._status_err_count == self._status_err_threshold:
                         self.poll_error.emit("/api/status", str(e))
 
             for _ in range(10):
@@ -292,9 +304,10 @@ class ApiTester(QtWidgets.QMainWindow):
     def _timestamp(self) -> str:
         return datetime.now().strftime("%H:%M:%S")
 
-    def log_error(self, msg: str):
+    def log_error(self, msg: str, switch_to_errors: bool = True):
         self.console_errores.appendPlainText(f"[{self._timestamp()}] {msg}")
-        self.tabConsole.setCurrentWidget(self.tab_console)
+        if switch_to_errors:
+            self.tabConsole.setCurrentWidget(self.tab_console)
 
     def log_json(self, endpoint: str, data):
         text = json.dumps(data, indent=2, ensure_ascii=False)
@@ -417,6 +430,12 @@ class ApiTester(QtWidgets.QMainWindow):
         self.log_json("/api/status", status)
 
     def _on_poll_error(self, endpoint: str, msg: str):
+        if endpoint == "/api/sensors":
+            # Keep sensors issues visible but do not steal focus from normal monitoring tabs.
+            self.log_error(f"{endpoint} — {msg}", switch_to_errors=False)
+            self.statusBar().showMessage("Aviso: fallos intermitentes en /api/sensors", 2500)
+            return
+
         self.log_error(f"{endpoint} — {msg}")
         if endpoint == "/api/status":
             self._disconnect()
