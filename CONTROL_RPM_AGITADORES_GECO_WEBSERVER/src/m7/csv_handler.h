@@ -1,9 +1,10 @@
 #pragma once
 
-#include "shared.h"
-#include <NTPClient.h>
+// This file is deprecated. Use the new modular headers instead:
+// - time_service.h for NTP and time formatting
+// - sensor_log_writer.h for CSV logging
+// - logging_session.h for session management
 
-// String getTimeStamp();
-String getLogFileName();
-bool syncTimeNTP(NTPClient& timeClient);
-void logToSD(FILE* file, SensorData& sensorsData);
+#include "time_service.h"
+#include "sensor_log_writer.h"
+#include "logging_session.h"

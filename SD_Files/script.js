@@ -1,6 +1,6 @@
 // === Variables ===
 // URL para recibir los datos (No es necesario cambiar por la ruta de servidor Arduino, con el endpoint de la API es suficiente)
-// Añadir a URL para desarrollo en local: http://169.254.1.2
+// Añadir a URL para desarrollo en local: "http://169.254.1.2/api" // Para produccion: "/api"
 const url = "http://169.254.1.2/api";
 // Intervalo de refresco en ms
 const fetchInterval = 1000;
@@ -8,6 +8,9 @@ const fetchInterval = 1000;
 const fetchTimeout = 4000;
 
 let isFetching = false;
+let isCheckingStatus = false;
+
+let isLogging = false;
 let lastDataJSON = null;
 
 const colors = ["#D3D3D3", "#9B9B9B"];
@@ -75,6 +78,42 @@ async function refreshTableData() {
         isFetching = false;
         // Programa siguiente intento tras intervalo
         setTimeout(refreshTableData, fetchInterval);
+    }
+}
+
+function updateLoggingStatus(logging) {
+    let btnOpenModal = document.getElementById('btnOpenLogList');
+    let spinnerLogging = document.getElementById('loggingSpinner');
+
+    if (logging) {
+        btnOpenModal.disabled = true;
+        btnOpenModal.innerText = "Grabación en curso..."
+
+        spinnerLogging.style.display = 'inline-block';        
+    } else {
+        btnOpenModal.disabled = false;
+        btnOpenModal.innerText = "Registro de datos"
+
+        spinnerLogging.style.display = 'none';    
+    }
+}
+
+async function checkLoggingStatus() {
+    if (isCheckingStatus) return;
+    isCheckingStatus = true;
+    try {
+        const response = await fetchWithTimeout(`${url}/status`);
+        const result = await response.json();
+
+        if (result.logging != isLogging) {
+            isLogging = result.logging;
+            updateLoggingStatus(isLogging);
+        }
+    } catch (error) {
+        console.error("Error: " + error.message);
+    } finally {
+        isCheckingStatus = false;
+        setTimeout(checkLoggingStatus, fetchInterval);
     }
 }
 
@@ -170,8 +209,6 @@ const btnOpenLogList = document.getElementById('btnOpenLogList');
 const btnDownloadLog = document.getElementById('btnDownloadLog');
 const btnClearLogs = document.getElementById('btnClearLogs');
 const btnCloseLogList = document.getElementById('btnCloseLogList');
-
-// if (btnDownload) btnDownload.addEventListener('click', downloadCSV);
 
 btnOpenLogList.onclick = async () => {
     modal.style.display = 'block';
@@ -279,4 +316,4 @@ btnClearLogs.onclick = async () => {
 };
 
 refreshTableData();
-
+checkLoggingStatus();

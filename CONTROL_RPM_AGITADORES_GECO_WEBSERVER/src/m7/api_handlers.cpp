@@ -1,10 +1,9 @@
 #include "shared.h"
 #include "api_handlers.h"
 #include "web_router.h"
+#include "m7_web.h"
 
 extern SensorData sensorsM7; // viene del m7_web.cpp actualizado por RPC
-extern String lastLogFile;
-extern bool isLogging;
 
 std::vector<String> nameLogs;
 
@@ -42,6 +41,7 @@ void handleStatus(EthernetClient& client, String path)
     JsonDocument doc;
     doc["status"] = "ok";
     doc["uptime"] = millis() / 1000;
+    doc["logging"] = getLoggingSession().isActive();
 
     sendJsonResponse(client, doc);
 }
@@ -55,13 +55,14 @@ void handleListLogs(EthernetClient& client, String path)
 
     DIR *dir = opendir("/sd");
     struct dirent *ent;
+    String activeLogFile = getLoggingSession().getActiveFileName();
 
     if (dir != NULL)
     {
         while ((ent = readdir(dir)) != NULL)
         {
             String name = ent->d_name;
-            if (name.endsWith(".log") && !(isLogging && name == lastLogFile))
+            if (name.endsWith(".log") && !(getLoggingSession().isActive() && name == activeLogFile))
             {
                 nameLogs.push_back(name);
             }
@@ -88,6 +89,13 @@ void handleListLogs(EthernetClient& client, String path)
 // Función para descargar archivo log en el cliente
 void handleDownloadLog(EthernetClient& client, String path)
 {
+    // Control de descarga mientras se está grabando un log
+    if (getLoggingSession().isActive())
+    {
+        client.println("HTTP/1.1 409 Conflict\r\nContent-Type: application/json\r\nAccess-Control-Allow-Origin: *\r\n\r\n{\"error\":\"recording\"}");
+        return;
+    }
+
     int index = path.indexOf("file=");
     if (index == -1)
     {
@@ -108,15 +116,17 @@ void handleClearLogs(EthernetClient& client, String path)
     DIR *dir = opendir("/sd");
     struct dirent *ent;
 
+    // === TEST ===
+    // Recorrer directorio y eliminar en base a nameLogs (menos el primero/más reciente)
     if (dir != NULL)
     {
         while ((ent = readdir(dir)) != NULL)
         {
             String name = ent->d_name;
-            if (name.endsWith(".log") && name != lastLogFile)
+            if (name.endsWith(".log") && !name.equals(nameLogs.at(0).c_str()))
             {
                 String fullPath = "/sd/" + name;
-                if (remove(fullPath.c_str()) == 0) deletedCount++;                
+                if (remove(fullPath.c_str()) == 0) deletedCount++;
             }
             
         }

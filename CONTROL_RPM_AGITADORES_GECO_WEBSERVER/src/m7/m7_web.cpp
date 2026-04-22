@@ -39,20 +39,22 @@ EthernetUDP ntpUDP;
 // NTP IH: 193.144.213.176 ntp.ihcantabria.com
 // (dev)
 // NTP PC: 169.254.112.33 adaptador Ethernet del PC
-NTPClient timeClient(ntpUDP, "169.254.112.33", 3600);
+NTPClient timeClient(ntpUDP, "169.254.112.33", 0);
 
 const uint32_t NTP_UPDATE_INTERVAL = 43200000; // 12h en ms
-static uint32_t lastNTPSync = 0;
+static int syncDSTOffset = 0;
 
 // Log de datos
-bool isLogging = false;
-String logRoute = "";
-String lastLogFile = "";
-FILE* logFile = nullptr;
+static LoggingSession loggingSession;
 
-// Variables para controlar un pequeño delay antes de cerrar el archivo
-static uint32_t stopTimer = 0;
-const uint32_t STOP_DELAY = 3000;
+// Export for api_handlers
+LoggingSession& getLoggingSession()
+{
+  return loggingSession;
+}
+
+// Polling de tiempo (RTC)
+static time_t lastLoggedTime = 0;
 
 // Comprobaciones de servicios
 bool sd_check = false;
@@ -122,8 +124,8 @@ void m7_setup()
   Serial.begin(115200);
 
   // (local-dev)
-  while (!Serial)
-    ;
+  // while (!Serial)
+  //   ;
 
   // Forzar arranque limpio de CM4
   LL_RCC_ForceCM4Boot();
@@ -164,7 +166,13 @@ void m7_setup()
     // NTP
     ntpUDP.begin(8888);
     timeClient.begin();
-    ntp_check = syncTimeNTP(timeClient);
+    timeClient.setUpdateInterval(NTP_UPDATE_INTERVAL);
+    int dstResult = syncTimeNTP(timeClient);
+    if (dstResult >= 0)
+    {
+      syncDSTOffset = dstResult;
+      ntp_check = true;
+    }
   }
   else
     Serial.println("[Ethernet] no conectado");
@@ -183,61 +191,34 @@ void m7_loop()
   {
     sensorsM7 = RPC.call("get_data").as<SensorData>();
     lastRPC = millis();
+  }
 
-    // Registro en log de datos
-    if (sd_check)
+  // Log de datos (polling RTC)
+  time_t now = (time_t)timeClient.getEpochTime() + syncDSTOffset;
+
+  if (now > lastLoggedTime)
+  {
+    if (lastLoggedTime == 0)
+      lastLoggedTime = now - 1;
+
+    while (lastLoggedTime < now)
     {
-      bool isRunning = false;
-      for (auto &sensor : sensorsM7.sensors)
-      {
-        if (sensor.rpm > 0.0f)
-        {
-          isRunning = true;
-          break;
-        }
-      }
+      lastLoggedTime++;
 
-      if (isRunning)
-      {
-        if (!isLogging)
-        {
-          // Inicio de grabación
-          isLogging = true;
-          lastLogFile = getLogFileName(); 
-          logRoute = "/sd/" + lastLogFile;
-          logFile = fopen(logRoute.c_str(), "a+"); // "a" = "append" adición de escritura y "+" permite lectura (read, write, append)
-
-          Serial.print(">>> Iniciando grabación: ");
-          Serial.println(lastLogFile);
-        }
-        // Seguir con grabación
-        stopTimer = millis();
-        if (logFile) logToSD(logFile, sensorsM7);
-      }
-      else
-      {
-        if (isLogging && (millis() - stopTimer > STOP_DELAY))
-        {
-          // Finalizar grabación
-          isLogging = false;
-          logRoute = "";
-          if (logFile) fclose(logFile);
-          logFile = nullptr;
-
-          Serial.println("<<< Grabación finalizada.");
-        }
-      }
+      // Write log through logging session
+      loggingSession.writeData(sensorsM7, lastLoggedTime);
     }
   }
 
-  // Sincronización de tiempo
-  if (millis() - lastNTPSync > NTP_UPDATE_INTERVAL)
+  // Sincronización de tiempo (no bloqueante, usa intervalo interno de NTPClient)
+  if (timeClient.update())
   {
-    if (syncTimeNTP(timeClient))
-      Serial.println("[NTP] Fecha y hora sincronizadas con éxito.");
-    else
-      Serial.println("[NTP] Error al intentar sincronizar tiempo.");
+    syncDSTOffset = getDSTOffset(timeClient.getEpochTime());
+    Serial.println("[NTP] Fecha y hora sincronizadas con éxito.");
   }
+
+  // Actualizar sesión de logging
+  loggingSession.update(sensorsM7, sd_check, now);
 
   // Gestión individual de clientes
   EthernetClient client = server.accept();
@@ -245,14 +226,14 @@ void m7_loop()
   if (client)
   {
     unsigned long timeout = millis();
-    while (client.connected() && !client.available() && (millis() - timeout) < 3000)
+    while (client.connected() && !client.available() && (millis() - timeout) < 200)
       ;
 
     if (client.available())
       processRequest(client);
 
     client.flush();
-    delay(100);
+    delay(50);
     client.stop();
   }
 }

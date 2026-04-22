@@ -4,11 +4,10 @@
 <head>
     <meta charset="UTF-8" />
     <title>Tests HTML</title>
-    <!-- local dev: /SD_Files + -->
+    <!-- local dev: /SD_Files/ + script-->
     <script src="/SD_Files/script.js" defer></script>
     <style>
         body {
-            /* background: #f6f7fb; */
             margin: 0;
             padding: 2rem;
             font-family: 'Arial';
@@ -126,6 +125,7 @@
 <body>
     <h1>Agitadores GeCo</h1>
     <div id="buttonsDiv">
+        <span class="spinner" id="loggingSpinner" style="display: none;"></span>
         <button id="btnOpenLogList">Registro de datos</button>
     </div>
     <div id="logsModal">
