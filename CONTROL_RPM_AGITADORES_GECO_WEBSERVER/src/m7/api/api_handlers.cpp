@@ -1,7 +1,7 @@
 #include "shared.h"
 #include "api_handlers.h"
-#include "web_router.h"
-#include "m7_web.h"
+#include "../core/web_router.h"
+#include "../m7_web.h"
 
 extern SensorData sensorsM7; // viene del m7_web.cpp actualizado por RPC
 
