@@ -3,8 +3,19 @@ import json
 import os
 from datetime import datetime
 
-import requests
 from PyQt6 import QtWidgets, QtCore, uic
+
+from api_client import ApiClient, RecordingActiveError
+
+# ---------------------------------------------------------------------------
+# Constantes de comportamiento de la UI
+# ---------------------------------------------------------------------------
+_SENSOR_COUNT          = 12   # número de agitadores que muestra la tabla
+_STATUS_POLL_EVERY     = 5    # cada cuántos ciclos de sensores se actualiza el status
+_POLL_SLEEP_MS         = 100  # ms que duerme el poller entre iteraciones internas
+_POLL_SLEEP_ITERS      = 10   # iteraciones de sleep por ciclo (ciclo = 1 s total)
+_SENSORS_ERR_THRESHOLD = 5    # fallos consecutivos de /api/sensors antes de reportar
+_STATUS_ERR_THRESHOLD  = 3    # fallos consecutivos de /api/status antes de desconectar
 
 
 # ---------------------------------------------------------------------------
@@ -28,59 +39,11 @@ def _save_ips(ips: list):
 
 
 # ---------------------------------------------------------------------------
-# ApiClient — encapsula comunicación HTTP con la API del dispositivo
-# ---------------------------------------------------------------------------
-class ApiClient:
-    def __init__(self, ip: str, port: str):
-        self.base_url = f"http://{ip}:{port}/api"
-        self.timeout = 5
-
-    def get_sensors(self) -> list:
-        r = requests.get(f"{self.base_url}/sensors", timeout=self.timeout)
-        r.raise_for_status()
-        return r.json()
-
-    def get_status(self) -> dict:
-        r = requests.get(f"{self.base_url}/status", timeout=self.timeout)
-        r.raise_for_status()
-        return r.json()
-
-    def get_logs(self) -> list:
-        r = requests.get(f"{self.base_url}/logs", timeout=self.timeout)
-        r.raise_for_status()
-        return r.json()
-
-    def download_log(self, filename: str, dest_path: str, progress_callback=None) -> bool:
-        r = requests.get(
-            f"{self.base_url}/download",
-            params={"file": filename},
-            timeout=30,
-            stream=True,
-        )
-        if r.status_code == 409:
-            raise RuntimeError("recording")
-        r.raise_for_status()
-
-        total = int(r.headers.get("Content-Length", 0))
-        downloaded = 0
-        with open(dest_path, "wb") as f:
-            for chunk in r.iter_content(chunk_size=8192):
-                f.write(chunk)
-                downloaded += len(chunk)
-                if progress_callback and total > 0:
-                    progress_callback(int(downloaded * 100 / total))
-        return True
-
-    def clear_logs(self) -> dict:
-        r = requests.get(f"{self.base_url}/clear-logs", timeout=self.timeout)
-        r.raise_for_status()
-        return r.json()
-
-
-# ---------------------------------------------------------------------------
 # DownloadWorker — hilo para descargar sin bloquear la UI
 # ---------------------------------------------------------------------------
 class DownloadWorker(QtCore.QThread):
+    """Ejecuta la descarga de un log en un hilo separado para no congelar la UI."""
+
     progress = QtCore.pyqtSignal(int)
     finished = QtCore.pyqtSignal(bool, str)  # (ok, message)
 
@@ -94,11 +57,8 @@ class DownloadWorker(QtCore.QThread):
         try:
             self.api.download_log(self.filename, self.dest_path, self.progress.emit)
             self.finished.emit(True, self.dest_path)
-        except RuntimeError as e:
-            if str(e) == "recording":
-                self.finished.emit(False, "No se puede descargar durante grabación activa.")
-            else:
-                self.finished.emit(False, str(e))
+        except RecordingActiveError as e:
+            self.finished.emit(False, str(e))
         except Exception as e:
             self.finished.emit(False, str(e))
 
@@ -106,6 +66,13 @@ class DownloadWorker(QtCore.QThread):
 # PollingWorker — hilo de polling para sensores y status (no bloquea la UI)
 # ---------------------------------------------------------------------------
 class PollingWorker(QtCore.QThread):
+    """
+    Interroga periódicamente al dispositivo en un hilo de fondo.
+
+    Cadencia: sensores cada ~1 s; status cada ~5 s.
+    Tolera fallos de red transitorios y solo reporta errores sostenidos.
+    """
+
     sensors_ready = QtCore.pyqtSignal(list)
     status_ready = QtCore.pyqtSignal(dict)
     poll_error = QtCore.pyqtSignal(str, str)  # (endpoint, message)
@@ -114,18 +81,18 @@ class PollingWorker(QtCore.QThread):
         super().__init__()
         self.api = api
         self._running = False
-        # Template policy: tolerate transient network noise, react to sustained failures.
         self._sensors_err_count = 0
         self._status_err_count = 0
-        self._sensors_err_threshold = 5
-        self._status_err_threshold = 3
+        self._sensors_err_threshold = _SENSORS_ERR_THRESHOLD
+        self._status_err_threshold  = _STATUS_ERR_THRESHOLD
 
     def stop(self):
         self._running = False
 
     def run(self):
         self._running = True
-        cycle = 5  # dispara status en el primer ciclo
+        # Se inicializa al umbral para que el primer ciclo consulte status inmediatamente.
+        _cycles_since_status = _STATUS_POLL_EVERY
         while self._running:
             try:
                 sensors = self.api.get_sensors()
@@ -140,9 +107,9 @@ class PollingWorker(QtCore.QThread):
                 ):
                     self.poll_error.emit("/api/sensors", str(e))
 
-            cycle += 1
-            if cycle >= 5:
-                cycle = 0
+            _cycles_since_status += 1
+            if _cycles_since_status >= _STATUS_POLL_EVERY:
+                _cycles_since_status = 0
                 try:
                     status = self.api.get_status()
                     if self._running:
@@ -153,16 +120,19 @@ class PollingWorker(QtCore.QThread):
                     if self._running and self._status_err_count == self._status_err_threshold:
                         self.poll_error.emit("/api/status", str(e))
 
-            for _ in range(10):
+            # Dormir en pequeños pasos para poder detener el hilo rápidamente.
+            for _ in range(_POLL_SLEEP_ITERS):
                 if not self._running:
                     return
-                QtCore.QThread.msleep(100)
+                QtCore.QThread.msleep(_POLL_SLEEP_MS)
 
 
 # ---------------------------------------------------------------------------
 # LogDialog — diálogo no-modal para gestionar logs
 # ---------------------------------------------------------------------------
 class LogDialog(QtWidgets.QDialog):
+    """Diálogo no-modal para listar, descargar y limpiar logs del dispositivo."""
+
     def __init__(self, api: ApiClient, parent=None):
         super().__init__(parent)
         ui_path = os.path.join(os.path.dirname(__file__), "log_dialog.ui")
@@ -184,7 +154,7 @@ class LogDialog(QtWidgets.QDialog):
     def cargar_logs(self):
         self.lbl_log_info.setText("Cargando…")
         self.btn_cargar_logs.setEnabled(False)
-        QtWidgets.QApplication.processEvents()
+        QtWidgets.QApplication.processEvents()  # fuerza repintado del texto antes del bloqueo de red
         try:
             logs = self.api.get_logs()
             self.combo_logs.clear()
@@ -258,6 +228,13 @@ class LogDialog(QtWidgets.QDialog):
 # ApiTester — ventana principal
 # ---------------------------------------------------------------------------
 class ApiTester(QtWidgets.QMainWindow):
+    """
+    Ventana principal de la aplicación de prueba de la API.
+
+    Gestiona la conexión al dispositivo, el polling en tiempo real de
+    sensores y estado, y el acceso al gestor de logs.
+    """
+
     def __init__(self):
         super().__init__()
         ui_path = os.path.join(os.path.dirname(__file__), "interfaz.ui")
@@ -273,7 +250,7 @@ class ApiTester(QtWidgets.QMainWindow):
             self.combo_ip.addItem(ip)
 
         # Inicializar tabla de sensores
-        for row in range(12):
+        for row in range(_SENSOR_COUNT):
             self.table_sensors.setItem(row, 0, QtWidgets.QTableWidgetItem(f"AG{row + 1}"))
             self.table_sensors.setItem(row, 1, QtWidgets.QTableWidgetItem("—"))
             self.table_sensors.setItem(row, 2, QtWidgets.QTableWidgetItem("—"))
@@ -360,7 +337,7 @@ class ApiTester(QtWidgets.QMainWindow):
         self.api = ApiClient(ip, port)
         self.lbl_red.setText("● Red: Comprobando…")
         self.lbl_red.setStyleSheet("color: orange; font-weight: bold;")
-        QtWidgets.QApplication.processEvents()
+        QtWidgets.QApplication.processEvents()  # muestra el estado "Comprobando" antes de bloquear en get_status
 
         try:
             status = self.api.get_status()
@@ -454,7 +431,7 @@ class ApiTester(QtWidgets.QMainWindow):
 
     def comprobar_api(self):
         self.statusBar().showMessage("Comprobando API…")
-        QtWidgets.QApplication.processEvents()
+        QtWidgets.QApplication.processEvents()  # actualiza la status bar antes de bloquear en get_status
         try:
             status = self.api.get_status()
             self._update_status_labels(status)
