@@ -99,7 +99,11 @@ function updateLoggingStatus(logging) {
         btnOpenModal.disabled = true;
         btnOpenModal.innerText = "Grabación en curso..."
 
-        spinnerLogging.style.display = 'inline-block';        
+        spinnerLogging.style.display = 'inline-block';
+
+        if (modal.style.display !== 'none' && !isFetching) {
+            modal.style.display = 'none';
+        }
     } else {
         btnOpenModal.disabled = false;
         btnOpenModal.innerText = "Registro de datos"
@@ -204,6 +208,10 @@ async function downloadCSV() {
 }
 
 async function loadLogList() {
+    if (btnRefreshLogList) {
+        btnRefreshLogList.disabled = true;
+        btnRefreshLogList.classList.add('loading');
+    }
     logSelect.innerHTML = '<option>Cargando...</option>';
 
     try {
@@ -212,9 +220,14 @@ async function loadLogList() {
 
         logSelect.innerHTML = files.length
             ? files.map(f => `<option value="${f}">${f}</option>`).join('')
-            : '<option value"">No hay archivos .log</option>';
+            : '<option value="">No hay archivos .log</option>';
     } catch (error) {
         logSelect.innerHTML = '<option>Error al cargar archivos</option>';
+    } finally {
+        if (btnRefreshLogList) {
+            btnRefreshLogList.disabled = false;
+            btnRefreshLogList.classList.remove('loading');
+        }
     }
 }
 
@@ -226,6 +239,7 @@ const btnOpenLogList = document.getElementById('btnOpenLogList');
 const btnDownloadLog = document.getElementById('btnDownloadLog');
 const btnClearLogs = document.getElementById('btnClearLogs');
 const btnCloseLogList = document.getElementById('btnCloseLogList');
+const btnRefreshLogList = document.getElementById('btnRefreshLogList');
 
 btnOpenLogList.onclick = async () => {
     modal.style.display = 'block';
@@ -233,6 +247,8 @@ btnOpenLogList.onclick = async () => {
 };
 
 btnCloseLogList.onclick = () => modal.style.display = 'none';
+
+btnRefreshLogList.onclick = () => { if (!isFetching) loadLogList(); };
 
 btnDownloadLog.onclick = async () => {
     const fileName = logSelect.value;
@@ -256,12 +272,14 @@ btnDownloadLog.onclick = async () => {
         isFetching = true;
         btnDownloadLog.disabled = true;
         btnClearLogs.disabled = true;
+        btnCloseLogList.disabled = true;
         showStatus(`Descargando...`);
 
         const req = `${url}/download?file=${fileName}`;
 
         const response = await fetchWithTimeout(req);
-        if (!response.ok) throw new Error("Archivo no encontrado");
+        if (response.status === 409) throw new Error("No se puede descargar: hay una grabación en curso");
+        if (!response.ok) throw new Error("Error al descargar el archivo");
 
         // Si el servidor envía Content-Length, muestra progreso real
         const contentLength = response.headers.get('content-length');
@@ -310,6 +328,7 @@ btnDownloadLog.onclick = async () => {
         isFetching = false;
         btnDownloadLog.disabled = false;
         btnClearLogs.disabled = false;
+        btnCloseLogList.disabled = false;
         hideStatus();
     }
 };
