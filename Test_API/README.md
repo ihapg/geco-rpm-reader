@@ -1,32 +1,32 @@
-# Test_API — Plantilla de cliente para la API GeCo
+# Test_API — GeCo API Client Template
 
-Aplicación de escritorio (PyQt6) que sirve como **referencia y plantilla** para comunicarse con la API REST del dispositivo GeCo Agitadores.  
-El objetivo principal no es la interfaz en sí, sino demostrar cómo usar `api_client.py` de forma aislada y luego integrarlo en cualquier proyecto.
+Desktop application (PyQt6) used as a **reference and template** to interact with the GeCo Agitators REST API.  
+The main goal is not the interface itself, but to show how to use `api_client.py` in isolation and then integrate it into any project.
 
 ---
 
-## Estructura del proyecto
+## Project structure
 
 ```
 Test_API/
-├── api_client.py    ← cliente HTTP puro, sin dependencias de UI  ← EXPORTABLE
-├── main.py          ← aplicación PyQt6 que consume api_client
-├── interfaz.ui      ← layout de la ventana principal (Qt Designer)
-├── log_dialog.ui    ← layout del diálogo de logs (Qt Designer)
-├── ips.json         ← IPs guardadas (generado automáticamente)
+├── api_client.py    <- pure HTTP client, no UI dependencies  <- EXPORTABLE
+├── main.py          <- PyQt6 application that uses api_client
+├── interfaz.ui      <- main window layout (Qt Designer)
+├── log_dialog.ui    <- log dialog layout (Qt Designer)
+├── ips.json         <- saved IPs (generated automatically)
 └── requirements.txt
 ```
 
 ---
 
-## Requisitos
+## Requirements
 
 - Python >= 3.10
-- Dependencias: `pip install -r requirements.txt`
+- Dependencies: `pip install -r requirements.txt`
 
 ---
 
-## Ejecutar la aplicación
+## Run the application
 
 ```bash
 python main.py
@@ -34,86 +34,86 @@ python main.py
 
 ---
 
-## Cómo funciona la aplicación
+## How the application works
 
-### Conexión
-Se introduce la IP del dispositivo y el puerto (por defecto `80`) y se pulsa **Conectar**.  
-La aplicación hace una primera llamada a `/api/status` para verificar que el dispositivo responde antes de iniciar el polling.  
-Las IPs que conectan con éxito se guardan automáticamente en `ips.json`.
+### Connection
+Enter the device IP and port (default `80`) and click **Connect**.  
+The app first calls `/api/status` to verify that the device is reachable before starting polling.  
+IPs that connect successfully are automatically saved in `ips.json`.
 
-### Polling en tiempo real
-Una vez conectado, dos endpoints se interrogan en un hilo de fondo (`PollingWorker`):
+### Real-time polling
+Once connected, two endpoints are queried from a background thread (`PollingWorker`):
 
-| Endpoint | Cadencia | Propósito |
+| Endpoint | Frequency | Purpose |
 |---|---|---|
-| `/api/sensors` | ~1 s | Lecturas de RPM y Hz de los agitadores |
-| `/api/status` | ~5 s | Estado del dispositivo y estado de grabación |
+| `/api/sensors` | ~1 s | RPM and Hz readings for agitators |
+| `/api/status` | ~5 s | Device state and recording state |
 
-El hilo tolera fallos de red transitorios (configurable con `_SENSORS_ERR_THRESHOLD` y `_STATUS_ERR_THRESHOLD` en `main.py`) y solo reporta errores sostenidos.  
-Si `/api/status` falla de forma sostenida, la aplicación se desconecta automáticamente.
+The worker tolerates transient network errors (configurable with `_SENSORS_ERR_THRESHOLD` and `_STATUS_ERR_THRESHOLD` in `main.py`) and only reports sustained failures.  
+If `/api/status` keeps failing, the app disconnects automatically.
 
-### Gestor de logs
-El botón **Gestor de logs** abre un diálogo que permite:
-- Listar los ficheros de log disponibles en el dispositivo (`/api/logs`)
-- Descargar un log con barra de progreso en streaming (`/api/download?file=<nombre>`)
-- Eliminar logs antiguos conservando el más reciente (`/api/clear-logs`)
+### Log manager
+The **Log Manager** button opens a dialog that allows you to:
+- List available log files on the device (`/api/logs`)
+- Download a log with streaming progress (`/api/download?file=<name>`)
+- Delete old logs while keeping the newest one (`/api/clear-logs`)
 
-La descarga se hace en un hilo separado (`DownloadWorker`) para no bloquear la UI.  
-Si el dispositivo está grabando en el momento de la descarga, devuelve HTTP 409 y se lanza `RecordingActiveError` — la aplicación lo muestra como aviso.
+Downloads run in a separate thread (`DownloadWorker`) so the UI stays responsive.  
+If the device is actively recording during download, it returns HTTP 409 and raises `RecordingActiveError` — the app shows this as a warning.
 
 ---
 
-## API del dispositivo — Referencia rápida
+## Device API — Quick reference
 
-| Endpoint | Método | Respuesta |
+| Endpoint | Method | Response |
 |---|---|---|
 | `/api/sensors` | GET | `[{"rpm": float, "hz": float}, ...]` |
 | `/api/status` | GET | `{"status": str, "logging": bool}` |
 | `/api/logs` | GET | `["log_2026-04-20.log", ...]` |
-| `/api/download?file=<nombre>` | GET | binario en streaming; 409 si grabación activa |
+| `/api/download?file=<name>` | GET | binary stream; 409 when recording is active |
 | `/api/clear-logs` | GET | `{"deleted": int}` |
 
 ---
 
-## Exportar `api_client.py` a otro proyecto
+## Export `api_client.py` to another project
 
-`api_client.py` no tiene ninguna dependencia de PyQt.  
-Basta con copiar el fichero al proyecto destino e instalar `requests`:
+`api_client.py` has no PyQt dependency.  
+Just copy the file into your target project and install `requests`:
 
 ```bash
 pip install requests
 ```
 
-### Uso básico
+### Basic usage
 
 ```python
 from api_client import ApiClient, RecordingActiveError
 
 client = ApiClient("192.168.1.254", "80")
 
-# Leer sensores
+# Read sensors
 sensors = client.get_sensors()          # [{"rpm": 120.5, "hz": 2.0}, ...]
 
-# Leer estado del dispositivo
+# Read device status
 status = client.get_status()            # {"status": "ok", "logging": False}
 
-# Listar logs disponibles
+# List available logs
 logs = client.get_logs()                # ["log_2026-04-20.log", ...]
 
-# Descargar un log (con callback de progreso opcional)
+# Download a log (optional progress callback)
 def on_progress(pct: int):
     print(f"\r{pct}%", end="")
 
-client.download_log("log_2026-04-20.log", "/ruta/local/log.log", on_progress)
+client.download_log("log_2026-04-20.log", "/local/path/log.log", on_progress)
 
-# Eliminar logs antiguos
+# Delete old logs
 result = client.clear_logs()            # {"deleted": 2}
 
-# Liberar recursos de red al terminar
+# Release network resources
 client.close()
 ```
 
-### Uso en polling (sin PyQt)
+### Polling usage (without PyQt)
 
 ```python
 import time
@@ -128,7 +128,7 @@ while True:
     time.sleep(1)
 ```
 
-### Gestión de errores
+### Error handling
 
 ```python
 import requests
@@ -139,43 +139,43 @@ client = ApiClient("192.168.1.254", "80")
 try:
     client.download_log("log.log", "local.log")
 except RecordingActiveError:
-    print("El dispositivo está grabando, inténtalo más tarde.")
+    print("Device is recording, try again later.")
 except requests.Timeout:
-    print("El dispositivo no responde.")
+    print("Device is not responding.")
 except requests.HTTPError as e:
-    print(f"Error HTTP: {e.response.status_code}")
+    print(f"HTTP error: {e.response.status_code}")
 ```
 
-### Integración con PyQt (patrón recomendado)
+### PyQt integration (recommended pattern)
 
-El patrón usado en `main.py` es el recomendado para integrar `ApiClient` en una GUI PyQt:
+The pattern used in `main.py` is the recommended way to integrate `ApiClient` into a PyQt GUI:
 
 ```python
-class MiWorker(QtCore.QThread):
-    datos_listos = QtCore.pyqtSignal(list)
+class MyWorker(QtCore.QThread):
+    data_ready = QtCore.pyqtSignal(list)
 
     def __init__(self, api: ApiClient):
         super().__init__()
         self.api = api
 
     def run(self):
-        datos = self.api.get_sensors()   # bloqueante — seguro en hilo separado
-        self.datos_listos.emit(datos)    # emitir siempre desde el hilo, nunca tocar la UI directamente
+        data = self.api.get_sensors()    # blocking call - safe in background thread
+        self.data_ready.emit(data)       # always emit from worker thread, never touch UI directly
 ```
 
-La regla clave: **`ApiClient` se llama siempre desde un `QThread`, nunca desde el hilo principal**, para no bloquear la UI.
+Key rule: **always call `ApiClient` from a `QThread`, never from the main UI thread**, to avoid blocking the interface.
 
 ---
 
-## Ajustes de comportamiento (`main.py`)
+## Behavior settings (`main.py`)
 
-Las constantes al inicio de `main.py` permiten adaptar el comportamiento sin tocar la lógica:
+Constants at the top of `main.py` let you tune behavior without changing business logic:
 
-| Constante | Valor por defecto | Descripción |
+| Constant | Default value | Description |
 |---|---|---|
-| `_SENSOR_COUNT` | `12` | Número de filas en la tabla de sensores |
-| `_STATUS_POLL_EVERY` | `5` | Ciclos de sensores entre cada consulta de status |
-| `_POLL_SLEEP_MS` | `100` | ms de sleep por iteración interna del poller |
-| `_POLL_SLEEP_ITERS` | `10` | Iteraciones por ciclo (ciclo ≈ 1 s total) |
-| `_SENSORS_ERR_THRESHOLD` | `5` | Fallos consecutivos en `/api/sensors` antes de reportar |
-| `_STATUS_ERR_THRESHOLD` | `3` | Fallos consecutivos en `/api/status` antes de desconectar |
+| `_SENSOR_COUNT` | `12` | Number of rows in the sensor table |
+| `_STATUS_POLL_EVERY` | `5` | Sensor cycles between status requests |
+| `_POLL_SLEEP_MS` | `100` | Sleep ms per internal polling iteration |
+| `_POLL_SLEEP_ITERS` | `10` | Iterations per cycle (cycle ~= 1 s total) |
+| `_SENSORS_ERR_THRESHOLD` | `5` | Consecutive `/api/sensors` failures before reporting |
+| `_STATUS_ERR_THRESHOLD` | `3` | Consecutive `/api/status` failures before disconnect |
