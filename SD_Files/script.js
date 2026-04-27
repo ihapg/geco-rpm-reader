@@ -1,7 +1,7 @@
 // === Variables ===
 // URL para recibir los datos (No es necesario cambiar por la ruta de servidor Arduino, con el endpoint de la API es suficiente)
 // Añadir a URL para desarrollo en local: "http://169.254.1.2/api" // Para produccion: "/api"
-const url = "http://169.254.1.2/api";
+const url = "/api";
 // Intervalo de refresco en ms
 const fetchInterval = 1000;
 // Intervalo de comprobación de estado de logging en ms (no cambia frecuentemente)
@@ -108,7 +108,7 @@ function updateLoggingStatus(logging) {
         btnOpenModal.disabled = false;
         btnOpenModal.innerText = "Registro de datos"
 
-        spinnerLogging.style.display = 'none';    
+        spinnerLogging.style.display = 'none';
     }
 }
 
@@ -283,7 +283,7 @@ btnDownloadLog.onclick = async () => {
 
         // Si el servidor envía Content-Length, muestra progreso real
         const contentLength = response.headers.get('content-length');
-        
+
         if (contentLength) {
             const total = parseInt(contentLength);
             let received = 0;

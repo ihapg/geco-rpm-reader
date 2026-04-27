@@ -10,12 +10,12 @@ from api_client import ApiClient, RecordingActiveError
 # ---------------------------------------------------------------------------
 # Constantes de comportamiento de la UI
 # ---------------------------------------------------------------------------
-_SENSOR_COUNT          = 12   # número de agitadores que muestra la tabla
-_STATUS_POLL_EVERY     = 5    # cada cuántos ciclos de sensores se actualiza el status
-_POLL_SLEEP_MS         = 100  # ms que duerme el poller entre iteraciones internas
-_POLL_SLEEP_ITERS      = 10   # iteraciones de sleep por ciclo (ciclo = 1 s total)
-_SENSORS_ERR_THRESHOLD = 5    # fallos consecutivos de /api/sensors antes de reportar
-_STATUS_ERR_THRESHOLD  = 3    # fallos consecutivos de /api/status antes de desconectar
+_SENSOR_COUNT = 12  # número de agitadores que muestra la tabla
+_STATUS_POLL_EVERY = 5  # cada cuántos ciclos de sensores se actualiza el status
+_POLL_SLEEP_MS = 100  # ms que duerme el poller entre iteraciones internas
+_POLL_SLEEP_ITERS = 10  # iteraciones de sleep por ciclo (ciclo = 1 s total)
+_SENSORS_ERR_THRESHOLD = 5  # fallos consecutivos de /api/sensors antes de reportar
+_STATUS_ERR_THRESHOLD = 3  # fallos consecutivos de /api/status antes de desconectar
 
 
 # ---------------------------------------------------------------------------
@@ -62,6 +62,7 @@ class DownloadWorker(QtCore.QThread):
         except Exception as e:
             self.finished.emit(False, str(e))
 
+
 # ---------------------------------------------------------------------------
 # PollingWorker — hilo de polling para sensores y status (no bloquea la UI)
 # ---------------------------------------------------------------------------
@@ -84,7 +85,7 @@ class PollingWorker(QtCore.QThread):
         self._sensors_err_count = 0
         self._status_err_count = 0
         self._sensors_err_threshold = _SENSORS_ERR_THRESHOLD
-        self._status_err_threshold  = _STATUS_ERR_THRESHOLD
+        self._status_err_threshold = _STATUS_ERR_THRESHOLD
 
     def stop(self):
         self._running = False
@@ -117,7 +118,10 @@ class PollingWorker(QtCore.QThread):
                         self.status_ready.emit(status)
                 except Exception as e:
                     self._status_err_count += 1
-                    if self._running and self._status_err_count == self._status_err_threshold:
+                    if (
+                        self._running
+                        and self._status_err_count == self._status_err_threshold
+                    ):
                         self.poll_error.emit("/api/status", str(e))
 
             # Dormir en pequeños pasos para poder detener el hilo rápidamente.
@@ -211,7 +215,8 @@ class LogDialog(QtWidgets.QDialog):
             self,
             "Confirmar limpieza",
             "Se eliminarán todos los logs antiguos (se conserva el más reciente). ¿Continuar?",
-            QtWidgets.QMessageBox.StandardButton.Yes | QtWidgets.QMessageBox.StandardButton.No,
+            QtWidgets.QMessageBox.StandardButton.Yes
+            | QtWidgets.QMessageBox.StandardButton.No,
         )
         if resp != QtWidgets.QMessageBox.StandardButton.Yes:
             return
@@ -251,7 +256,9 @@ class ApiTester(QtWidgets.QMainWindow):
 
         # Inicializar tabla de sensores
         for row in range(_SENSOR_COUNT):
-            self.table_sensors.setItem(row, 0, QtWidgets.QTableWidgetItem(f"AG{row + 1}"))
+            self.table_sensors.setItem(
+                row, 0, QtWidgets.QTableWidgetItem(f"AG{row + 1}")
+            )
             self.table_sensors.setItem(row, 1, QtWidgets.QTableWidgetItem("—"))
             self.table_sensors.setItem(row, 2, QtWidgets.QTableWidgetItem("—"))
         self.table_sensors.horizontalHeader().setSectionResizeMode(
@@ -324,7 +331,9 @@ class ApiTester(QtWidgets.QMainWindow):
                 self.combo_ip.removeItem(idx)
             self.statusBar().showMessage(f"IP '{ip}' eliminada", 3000)
         else:
-            self.statusBar().showMessage(f"IP '{ip}' no está en la lista guardada", 3000)
+            self.statusBar().showMessage(
+                f"IP '{ip}' no está en la lista guardada", 3000
+            )
 
     def _connect(self):
         ip = self.combo_ip.currentText().strip()
@@ -398,7 +407,11 @@ class ApiTester(QtWidgets.QMainWindow):
             hz = s.get("hz", 0)
             self.table_sensors.item(i, 1).setText(f"{rpm:.2f}")
             self.table_sensors.item(i, 2).setText(f"{hz:.2f}")
-            color = QtCore.Qt.GlobalColor.darkGreen if rpm > 0 else QtCore.Qt.GlobalColor.black
+            color = (
+                QtCore.Qt.GlobalColor.darkGreen
+                if rpm > 0
+                else QtCore.Qt.GlobalColor.black
+            )
             self.table_sensors.item(i, 1).setForeground(color)
             self.table_sensors.item(i, 2).setForeground(color)
 
@@ -410,7 +423,9 @@ class ApiTester(QtWidgets.QMainWindow):
         if endpoint == "/api/sensors":
             # Keep sensors issues visible but do not steal focus from normal monitoring tabs.
             self.log_error(f"{endpoint} — {msg}", switch_to_errors=False)
-            self.statusBar().showMessage("Aviso: fallos intermitentes en /api/sensors", 2500)
+            self.statusBar().showMessage(
+                "Aviso: fallos intermitentes en /api/sensors", 2500
+            )
             return
 
         self.log_error(f"{endpoint} — {msg}")
@@ -436,9 +451,11 @@ class ApiTester(QtWidgets.QMainWindow):
             status = self.api.get_status()
             self._update_status_labels(status)
             self.log_json("/api/status", status)
-            s = status.get('status', '?')
-            logging = "ACTIVA" if status.get('logging', False) else "Inactiva"
-            self.statusBar().showMessage(f"API OK — Status: {s} | Grabación: {logging}", 4000)
+            s = status.get("status", "?")
+            logging = "ACTIVA" if status.get("logging", False) else "Inactiva"
+            self.statusBar().showMessage(
+                f"API OK — Status: {s} | Grabación: {logging}", 4000
+            )
         except Exception as e:
             self.log_error(f"Comprobar API — {e}")
             self.statusBar().showMessage(f"Error al comprobar API", 4000)

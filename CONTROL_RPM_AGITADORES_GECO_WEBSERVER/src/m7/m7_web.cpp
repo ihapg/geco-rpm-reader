@@ -11,16 +11,16 @@
 // === Variables ===
 // Configuracion server
 // (prod)
-// const IPAddress ip(192, 168, 1, 254);
-// const IPAddress dns(192, 168, 1, 1);
-// const IPAddress gateway(192, 168, 1, 1);
-// const IPAddress subnet(255, 255, 255, 0);
+const IPAddress ip(192, 168, 1, 254);
+const IPAddress dns(192, 168, 1, 1);
+const IPAddress gateway(192, 168, 1, 1);
+const IPAddress subnet(255, 255, 255, 0);
 
 // (dev)
-const IPAddress ip(169, 254, 1, 2);
-const IPAddress dns(8, 8, 8, 8);
-const IPAddress gateway(169, 254, 112, 33);
-const IPAddress subnet(255, 255, 0, 0);
+// const IPAddress ip(169, 254, 1, 2);
+// const IPAddress dns(8, 8, 8, 8);
+// const IPAddress gateway(169, 254, 112, 33);
+// const IPAddress subnet(255, 255, 0, 0);
 
 // Puerto del servidor
 EthernetServer server(80);
@@ -34,10 +34,10 @@ const uint32_t RPC_UPDATE_INTERVAL = 1000;
 static uint32_t lastRPC = 0;
 
 // Gestión multi-slot de clientes HTTP
-static const uint8_t  MAX_CLIENTS       = 5;
+static const uint8_t MAX_CLIENTS = 5;
 static const uint32_t CLIENT_TIMEOUT_MS = 500;
 static EthernetClient clients[MAX_CLIENTS];
-static uint32_t       clientTimestamp[MAX_CLIENTS] = {0};
+static uint32_t clientTimestamp[MAX_CLIENTS] = {0};
 
 // Ajuste y sincronización de fecha y hora (NTP)
 EthernetUDP ntpUDP;
@@ -45,7 +45,7 @@ EthernetUDP ntpUDP;
 // NTP IH: 193.144.213.176 ntp.ihcantabria.com
 // (dev)
 // NTP PC: 169.254.112.33 adaptador Ethernet del PC
-NTPClient timeClient(ntpUDP, "169.254.112.33", 0);
+NTPClient timeClient(ntpUDP, "ntp.ihcantabria.com", 0);
 
 const uint32_t NTP_UPDATE_INTERVAL = 43200000; // 12h en ms
 static int syncDSTOffset = 0;
@@ -54,7 +54,7 @@ static int syncDSTOffset = 0;
 static LoggingSession loggingSession;
 
 // Export for api_handlers
-LoggingSession& getLoggingSession()
+LoggingSession &getLoggingSession()
 {
   return loggingSession;
 }
@@ -130,8 +130,8 @@ void m7_setup()
   Serial.begin(115200);
 
   // (local-dev)
-  while (!Serial)
-    ;
+  // while (!Serial)
+  //   ;
 
   // Forzar arranque limpio de CM4
   LL_RCC_ForceCM4Boot();
@@ -237,9 +237,9 @@ void m7_loop()
     {
       if (!clients[i])
       {
-        clients[i]         = incoming;
+        clients[i] = incoming;
         clientTimestamp[i] = millis();
-        placed             = true;
+        placed = true;
         break;
       }
     }
@@ -255,7 +255,8 @@ void m7_loop()
   // 2. Atender cada slot activo
   for (uint8_t i = 0; i < MAX_CLIENTS; i++)
   {
-    if (!clients[i]) continue;
+    if (!clients[i])
+      continue;
 
     if (clients[i].available())
     {

@@ -3,9 +3,9 @@
 
 <head>
     <meta charset="UTF-8" />
-    <title>Tests HTML</title>
+    <title>GeCo Agitadores</title>
     <!-- local dev: /SD_Files/ + script-->
-    <script src="/SD_Files/script.js" defer></script>
+    <script src="/script.js" defer></script>
     <style>
         body {
             margin: 0;
@@ -73,8 +73,14 @@
             padding: 2px 6px;
         }
 
-        #btnCloseLogList:hover { color: #222; }
-        #btnCloseLogList:disabled { color: #ccc; cursor: default; }
+        #btnCloseLogList:hover {
+            color: #222;
+        }
+
+        #btnCloseLogList:disabled {
+            color: #ccc;
+            cursor: default;
+        }
 
         #logListHeader {
             display: flex;
@@ -94,9 +100,18 @@
             border-radius: 4px;
         }
 
-        #btnRefreshLogList:hover { color: #111; }
-        #btnRefreshLogList.loading { animation: spin 0.8s linear infinite; }
-        #btnRefreshLogList:disabled { color: #bbb; cursor: default; }
+        #btnRefreshLogList:hover {
+            color: #111;
+        }
+
+        #btnRefreshLogList.loading {
+            animation: spin 0.8s linear infinite;
+        }
+
+        #btnRefreshLogList:disabled {
+            color: #bbb;
+            cursor: default;
+        }
 
         #logSelect {
             margin-bottom: 20px;
@@ -127,7 +142,9 @@
         }
 
         @keyframes spin {
-            to {transform: rotate(360deg);}
+            to {
+                transform: rotate(360deg);
+            }
         }
 
         #downloadProgress {
@@ -149,15 +166,25 @@
         }
 
         @keyframes indeterminate {
-            0% { width: 0%; margin-left: 0%; }
-            50% { width: 60%; margin-left: 20%; }
-            100% { width: 0%; margin-left: 100%; }
+            0% {
+                width: 0%;
+                margin-left: 0%;
+            }
+
+            50% {
+                width: 60%;
+                margin-left: 20%;
+            }
+
+            100% {
+                width: 0%;
+                margin-left: 100%;
+            }
         }
 
         #downloadProgressBar.has-progress {
             animation: none;
         }
-
     </style>
 </head>
 
