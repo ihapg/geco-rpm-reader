@@ -14,8 +14,8 @@ Route apiRoutes[] = {
     {"/api/status", handleStatus},
     {"/api/logs", handleListLogs},
     {"/api/download", handleDownloadLog},
-    {"/api/clear-logs", handleClearLogs}
-};
+    {"/api/clear-logs", handleClearLogs},
+    {"/api/rename", handleRenameLog}};
 
 // Función para enviar el archivo solicitado
 void serveFile(EthernetClient &client, const char *path, const char *mime, const char *fileName = nullptr)
@@ -58,8 +58,10 @@ void serveFile(EthernetClient &client, const char *path, const char *mime, const
         while (bytesSent < bytesRead)
         {
             int sent = client.write(buf + bytesSent, bytesRead - bytesSent);
-            if (sent > 0) bytesSent += sent;
-            else delay(1);
+            if (sent > 0)
+                bytesSent += sent;
+            else
+                delay(1);
         }
     }
 

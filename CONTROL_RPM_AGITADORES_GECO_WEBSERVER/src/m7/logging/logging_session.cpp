@@ -1,17 +1,16 @@
 #include "logging_session.h"
 #include "sensor_log_writer.h"
-#include <Arduino.h>
 
 LoggingSession::LoggingSession()
-  : isLogging(false), logFile(nullptr), logRoute(""), lastLogFile(""), stopTimer(0)
+    : isLogging(false), logFile(nullptr), logRoute(""), lastLogFile(""), stopTimer(0)
 {
 }
 
-void LoggingSession::update(const SensorData& sensorsData, bool sdAvailable, time_t currentTimestamp)
+void LoggingSession::update(const SensorData &sensorsData, bool sdAvailable, time_t currentTimestamp)
 {
   // Detect if any sensor is running
   bool isRunning = false;
-  for (const auto& sensor : sensorsData.sensors)
+  for (const auto &sensor : sensorsData.sensors)
   {
     if (sensor.rpm > 0.0f)
     {
@@ -58,7 +57,8 @@ void LoggingSession::update(const SensorData& sensorsData, bool sdAvailable, tim
       // Stop recording
       isLogging = false;
       logRoute = "";
-      if (logFile) fclose(logFile);
+      if (logFile)
+        fclose(logFile);
       logFile = nullptr;
 
       Serial.print("<<< Grabación finalizada -> ");
@@ -67,12 +67,44 @@ void LoggingSession::update(const SensorData& sensorsData, bool sdAvailable, tim
   }
 }
 
-void LoggingSession::writeData(const SensorData& sensorsData, time_t timestamp)
+void LoggingSession::writeData(const SensorData &sensorsData, time_t timestamp)
 {
   if (isLogging && logFile)
   {
     logToSD(logFile, sensorsData, timestamp);
   }
+}
+
+bool LoggingSession::bootstrapLastLogFileFromSD(const char *dirPath)
+{
+  lastLogFile = "";
+
+  DIR *dir = opendir(dirPath);
+  if (!dir)
+    return false;
+
+  struct dirent *ent;
+  String newest = "";
+
+  while ((ent = readdir(dir)) != nullptr)
+  {
+    String name = ent->d_name;
+    if (name.endsWith(".log"))
+    {
+      if (newest.isEmpty() || name > newest)
+        newest = name;
+    }
+  }
+
+  closedir(dir);
+
+  if (!newest.isEmpty())
+  {
+    lastLogFile = newest;
+    return true;
+  }
+
+  return false;
 }
 
 bool LoggingSession::isActive() const
@@ -85,7 +117,7 @@ String LoggingSession::getActiveFileName() const
   return lastLogFile;
 }
 
-FILE* LoggingSession::getFile() const
+FILE *LoggingSession::getFile() const
 {
   return logFile;
 }

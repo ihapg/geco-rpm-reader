@@ -8,7 +8,7 @@ extern SensorData sensorsM7; // viene del m7_web.cpp actualizado por RPC
 std::vector<String> nameLogs;
 
 // Función para generar archivo JSON respuesta
-void sendJsonResponse(EthernetClient& client, const JsonDocument& doc)
+void sendJsonResponse(EthernetClient &client, const JsonDocument &doc)
 {
     client.println("HTTP/1.1 200 OK");
     client.println("Content-Type: application/json");
@@ -20,7 +20,7 @@ void sendJsonResponse(EthernetClient& client, const JsonDocument& doc)
 }
 
 // Función que recopila datos de los sensores y los envía en archivo JSON
-void handleSensors(EthernetClient& client, String path)
+void handleSensors(EthernetClient &client, String path)
 {
     JsonDocument doc;
 
@@ -32,22 +32,23 @@ void handleSensors(EthernetClient& client, String path)
         obj["hz"] = sensor.hz;
     }
 
-    sendJsonResponse(client, doc);    
+    sendJsonResponse(client, doc);
 }
 
 // Función que recopila el estado del programa y lo envía en archivo JSON
-void handleStatus(EthernetClient& client, String path)
+void handleStatus(EthernetClient &client, String path)
 {
     JsonDocument doc;
     doc["status"] = "ok";
     doc["uptime"] = millis() / 1000;
     doc["logging"] = getLoggingSession().isActive();
+    doc["last_log"] = getLoggingSession().getActiveFileName();
 
     sendJsonResponse(client, doc);
 }
 
 // Función para listar los archivos log guardados en la SD
-void handleListLogs(EthernetClient& client, String path)
+void handleListLogs(EthernetClient &client, String path)
 {
     // Recopilación de logs
     // std::vector<String> nameLogs;
@@ -71,9 +72,8 @@ void handleListLogs(EthernetClient& client, String path)
     }
 
     // Ordenar lista de logs por nombre descendente (más recientes primero)
-    std::sort(nameLogs.begin(), nameLogs.end(), [](const String& a, const String&b) {
-        return a > b;
-    });
+    std::sort(nameLogs.begin(), nameLogs.end(), [](const String &a, const String &b)
+              { return a > b; });
 
     // Generación de respuesta JSON y escritura en CSV
     JsonDocument doc;
@@ -81,13 +81,13 @@ void handleListLogs(EthernetClient& client, String path)
     for (auto &name : nameLogs)
     {
         files.add(name);
-    }    
+    }
 
     sendJsonResponse(client, doc);
 }
 
 // Función para descargar archivo log en el cliente
-void handleDownloadLog(EthernetClient& client, String path)
+void handleDownloadLog(EthernetClient &client, String path)
 {
     // Control de descarga mientras se está grabando un log
     if (getLoggingSession().isActive())
@@ -99,7 +99,6 @@ void handleDownloadLog(EthernetClient& client, String path)
     int index = path.indexOf("file=");
     if (index == -1)
     {
-
         client.println("HTTP/1.1 400 Bad Request\r\n\r\n");
         return;
     }
@@ -110,8 +109,14 @@ void handleDownloadLog(EthernetClient& client, String path)
 }
 
 // Función para borrar los archivos log de la SD
-void handleClearLogs(EthernetClient& client, String path)
+void handleClearLogs(EthernetClient &client, String path)
 {
+    if (nameLogs.empty())
+    {
+        client.println("HTTP/1.1 400 Bad Request\r\nContent-Type: application/json\r\nAccess-Control-Allow-Origin: *\r\n\r\n{\"error\":\"no_logs\"}");
+        return;
+    }
+
     int deletedCount = 0;
     DIR *dir = opendir("/sd");
     struct dirent *ent;
@@ -126,9 +131,9 @@ void handleClearLogs(EthernetClient& client, String path)
             if (name.endsWith(".log") && !name.equals(nameLogs.at(0).c_str()))
             {
                 String fullPath = "/sd/" + name;
-                if (remove(fullPath.c_str()) == 0) deletedCount++;
+                if (remove(fullPath.c_str()) == 0)
+                    deletedCount++;
             }
-            
         }
         closedir(dir);
     }
@@ -136,5 +141,75 @@ void handleClearLogs(EthernetClient& client, String path)
     JsonDocument doc;
     doc["status"] = "success";
     doc["deleted"] = deletedCount;
+    sendJsonResponse(client, doc);
+}
+
+// Función para renombrar archivo de registro tras cierre
+void handleRenameLog(EthernetClient &client, String path)
+{
+    if (getLoggingSession().isActive())
+    {
+        client.println("HTTP/1.1 409 Conflict\r\nContent-Type: application/json\r\nAccess-Control-Allow-Origin: *\r\n\r\n{\"error\":\"recording\"}");
+        return;
+    }
+
+    int fromStart = path.indexOf("from=");
+    int toStart = path.indexOf("to=");
+    if (fromStart == -1 || toStart == -1)
+    {
+        client.println("HTTP/1.1 400 Bad Request\r\nAccess-Control-Allow-Origin: *\r\n\r\n");
+        return;
+    }
+
+    String nameFrom = path.substring(fromStart + 5, path.indexOf('&', fromStart));
+    String nameTo = path.substring(toStart + 3);
+
+    // Validación mínima contra path traversal/rutas arbitrarias
+    auto hasDangerousPattern = [](const String &name)
+    {
+        return name.length() == 0 ||
+               name.indexOf("..") != -1 ||
+               name.indexOf('/') != -1 ||
+               name.indexOf('\\') != -1;
+    };
+
+    if (hasDangerousPattern(nameFrom) || hasDangerousPattern(nameTo))
+    {
+        client.println("HTTP/1.1 400 Bad Request\r\nContent-Type: application/json\r\nAccess-Control-Allow-Origin: *\r\n\r\n{\"error\":\"invalid_name\"}");
+        return;
+    }
+
+    String oldPath = "/sd/" + nameFrom;
+    String newPath = "/sd/" + nameTo;
+
+    // Verificar existencia del origen
+    FILE *checkSrc = fopen(oldPath.c_str(), "r");
+    if (!checkSrc)
+    {
+        client.println("HTTP/1.1 404 Not Found\r\nContent-Type: application/json\r\nAccess-Control-Allow-Origin: *\r\n\r\n{\"error\":\"not_found\"}");
+        return;
+    }
+    fclose(checkSrc);
+
+    // Verificar colisión de destino
+    FILE *checkDst = fopen(newPath.c_str(), "r");
+    if (checkDst)
+    {
+        fclose(checkDst);
+        client.println("HTTP/1.1 409 Conflict\r\nContent-Type: application/json\r\nAccess-Control-Allow-Origin: *\r\n\r\n{\"error\":\"already_exists\"}");
+        return;
+    }
+
+    // Ejecutar rename en SD
+    if (rename(oldPath.c_str(), newPath.c_str()) != 0)
+    {
+        client.println("HTTP/1.1 500 Internal Server Error\r\nContent-Type: application/json\r\nAccess-Control-Allow-Origin: *\r\n\r\n{\"error\":\"rename_failed\"}");
+        return;
+    }
+
+    JsonDocument doc;
+    doc["status"] = "success";
+    doc["from"] = nameFrom;
+    doc["to"] = nameTo;
     sendJsonResponse(client, doc);
 }

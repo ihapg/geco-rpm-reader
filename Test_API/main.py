@@ -2,6 +2,7 @@
 import json
 import os
 from datetime import datetime
+import re
 
 from PyQt6 import QtWidgets, QtCore, uic
 
@@ -16,6 +17,7 @@ _POLL_SLEEP_MS = 100  # ms que duerme el poller entre iteraciones internas
 _POLL_SLEEP_ITERS = 10  # iteraciones de sleep por ciclo (ciclo = 1 s total)
 _SENSORS_ERR_THRESHOLD = 5  # fallos consecutivos de /api/sensors antes de reportar
 _STATUS_ERR_THRESHOLD = 3  # fallos consecutivos de /api/status antes de desconectar
+_LOG_NAME_RE = re.compile(r"^[\w\-]{1,60}\.log$")
 
 
 # ---------------------------------------------------------------------------
@@ -230,6 +232,75 @@ class LogDialog(QtWidgets.QDialog):
 
 
 # ---------------------------------------------------------------------------
+# RenameLogDialog — diálogo modal para renombrar logs
+# ---------------------------------------------------------------------------
+class RenameLogDialog(QtWidgets.QDialog):
+
+    def __init__(self, default_name: str, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Sesión de grabación finalizada")
+        self.setMinimumWidth(420)
+        self._original_name = default_name
+
+        layout = QtWidgets.QVBoxLayout(self)
+
+        # Nombre generado (solo lectura, informativo)
+        layout.addWidget(QtWidgets.QLabel("Nombre generado:"))
+        lbl_original = QtWidgets.QLabel(default_name)
+        lbl_original.setStyleSheet("color: gray; font-style: italic;")
+        layout.addWidget(lbl_original)
+
+        # Campo editable, sugerencia de nombre generado
+        layout.addWidget(QtWidgets.QLabel("Nuevo nombre:"))
+
+        base_name = default_name.removesuffix(".log")
+        name_row = QtWidgets.QHBoxLayout()
+        self._edit = QtWidgets.QLineEdit(base_name)
+        self._lbl_ext = QtWidgets.QLabel(".log")
+        name_row.addWidget(self._edit)
+        name_row.addWidget(self._lbl_ext)
+
+        layout.addLayout(name_row)
+
+        # Aquí se muestra el error de validación (vacío hasta que falla)
+        self._lbl_error = QtWidgets.QLabel("")
+        self._lbl_error.setStyleSheet("color: red;")
+        layout.addWidget(self._lbl_error)
+
+        # Checkbox de descarga automática, marcado por defecto
+        self._chk_download = QtWidgets.QCheckBox("Descargar automáticamente")
+        self._chk_download.setChecked(False)
+        layout.addWidget(self._chk_download)
+
+        # Botones OK / Cancelar
+        self._buttons = QtWidgets.QDialogButtonBox(
+            QtWidgets.QDialogButtonBox.StandardButton.Ok
+            | QtWidgets.QDialogButtonBox.StandardButton.Cancel
+        )
+        self._buttons.accepted.connect(self._on_accept)
+        self._buttons.rejected.connect(self.reject)
+        layout.addWidget(self._buttons)
+
+    def _on_accept(self):
+        """Valida el nombre antes de cerrar el diálogo"""
+        name = self._edit.text().strip() + ".log"  # <- añade extensión automáticamente
+        if not _LOG_NAME_RE.match(name):
+            self._lbl_error.setText(
+                "Nombre inválido. Solo letras, números, - y _ (máx 60 chars)."
+            )
+            return
+        self.accept()
+
+    @property
+    def new_name(self) -> str:
+        return self._edit.text().strip() + ".log"
+
+    @property
+    def auto_download(self) -> bool:
+        return self._chk_download.isChecked()
+
+
+# ---------------------------------------------------------------------------
 # ApiTester — ventana principal
 # ---------------------------------------------------------------------------
 class ApiTester(QtWidgets.QMainWindow):
@@ -249,6 +320,7 @@ class ApiTester(QtWidgets.QMainWindow):
         self._connected = False
         self._log_dialog: LogDialog | None = None
         self._poller: PollingWorker | None = None
+        self._prev_logging: bool = False
 
         # Cargar IPs guardadas en el combo
         for ip in _load_ips():
@@ -442,6 +514,15 @@ class ApiTester(QtWidgets.QMainWindow):
             self.lbl_logging.setText("Grabación: Inactiva")
             self.lbl_logging.setStyleSheet("color: green;")
 
+        # Detección de transición True -> False
+        if self._prev_logging and not logging_active:
+            last_log = status.get("last_log", "")
+            if last_log:
+                # Esto garantiza que _prev_logging ya esté actualizado cuando se abra (evitar bucles anidados)
+                QtCore.QTimer.singleShot(0, lambda: self._show_rename_dialog(last_log))
+
+        self._prev_logging = logging_active
+
     # -- acciones manuales --------------------------------------------------
 
     def comprobar_api(self):
@@ -470,6 +551,39 @@ class ApiTester(QtWidgets.QMainWindow):
         self._log_dialog.raise_()
         self._log_dialog.activateWindow()
         self.statusBar().showMessage("Gestor de logs abierto", 3000)
+
+    def _show_rename_dialog(self, default_name: str):
+        dlg = RenameLogDialog(default_name, parent=self)
+        if dlg.exec() != QtWidgets.QDialog.DialogCode.Accepted:
+            return  # cancelado por user
+
+        final_name = dlg.new_name
+
+        # Solo rename si el nombre cambia
+        if final_name != default_name:
+            try:
+                self.api.rename_log(default_name, final_name)
+                self.statusBar().showMessage(f"Log renombrado a '{final_name}'", 4000)
+            except Exception as e:
+                self.log_error(f"Error al renombrar el log: {e}")
+                return  # si falla rename, no intenta descarga de nombre nuevo
+
+        # Descarga automática (depende de checkbox)
+        if dlg.auto_download:
+            dest, _ = QtWidgets.QFileDialog.getSaveFileName(
+                self, "Guardar log", final_name, "Log files (*.log);;All files (*)"
+            )
+            if not dest:
+                return
+            self._download_worker = DownloadWorker(self.api, final_name, dest)
+            self._download_worker.finished.connect(self._on_auto_download_finished)
+            self._download_worker.start()
+
+    def _on_auto_download_finished(self, ok: bool, msg: str):
+        if ok:
+            self.statusBar().showMessage(f"Descarga completada: {msg}", 5000)
+        else:
+            self.log_error(f"Error en la descarga automática - {msg}")
 
 
 # ---------------------------------------------------------------------------

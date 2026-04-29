@@ -16,10 +16,10 @@ import requests
 # ---------------------------------------------------------------------------
 # Constantes internas del cliente
 # ---------------------------------------------------------------------------
-_TIMEOUT_API      = 5    # segundos — peticiones normales
-_TIMEOUT_DOWNLOAD = 30   # segundos — descarga de ficheros de log (pueden ser grandes)
-_CHUNK_SIZE       = 8192 # bytes — tamaño de bloque en descarga en streaming
-_HTTP_RECORDING   = 409  # código HTTP que devuelve el dispositivo cuando está grabando
+_TIMEOUT_API = 5  # segundos — peticiones normales
+_TIMEOUT_DOWNLOAD = 30  # segundos — descarga de ficheros de log (pueden ser grandes)
+_CHUNK_SIZE = 8192  # bytes — tamaño de bloque en descarga en streaming
+_HTTP_RECORDING = 409  # código HTTP que devuelve el dispositivo cuando está grabando
 
 
 # ---------------------------------------------------------------------------
@@ -94,7 +94,9 @@ class ApiClient:
 
     # -- endpoint de descarga -----------------------------------------------
 
-    def download_log(self, filename: str, dest_path: str, progress_callback=None) -> bool:
+    def download_log(
+        self, filename: str, dest_path: str, progress_callback=None
+    ) -> bool:
         """
         Descarga un fichero de log en streaming y lo guarda en disco.
 
@@ -127,7 +129,9 @@ class ApiClient:
             stream=True,
         )
         if r.status_code == _HTTP_RECORDING:
-            raise RecordingActiveError("No se puede descargar durante grabación activa.")
+            raise RecordingActiveError(
+                "No se puede descargar durante grabación activa."
+            )
         r.raise_for_status()
 
         total = int(r.headers.get("Content-Length", 0))
@@ -152,6 +156,43 @@ class ApiClient:
             Respuesta del dispositivo, p. ej. ``{"deleted": 3}``.
         """
         r = self._session.get(f"{self.base_url}/clear-logs", timeout=_TIMEOUT_API)
+        r.raise_for_status()
+        return r.json()
+
+    # -- endpoint de renombrado ---------------------------------------------
+
+    def rename_log(self, old_name: str, new_name: str) -> dict:
+        """
+        Renombra un fichero de log existente en el dispositivo.
+
+        Parámetros
+        ----------
+        old_name : str
+            Nombre actual del fichero (tal como lo devuelve ``get_logs()``).
+        new_name : str
+            Nombre nuevo deseado para el fichero.
+
+        Returns
+        -------
+        dict
+            Respuesta del dispositivo, p. ej. ``{"status": "success", "from": "...", "to": "..."}``.
+
+        Raises
+        ------
+        RecordingActiveError
+            Si el dispositivo está grabando y no permite renombrar.
+        requests.HTTPError
+            Para cualquier otro error HTTP (400 nombre inválido, 404 no existe, 409 destino ocupado, 500 fallo en SD).
+        """
+        r = self._session.get(
+            f"{self.base_url}/rename",
+            params={"from": old_name, "to": new_name},
+            timeout=_TIMEOUT_API,
+        )
+        if r.status_code == _HTTP_RECORDING:
+            raise RecordingActiveError(
+                "No se puede renombrar con una grabación activa."
+            )
         r.raise_for_status()
         return r.json()
 

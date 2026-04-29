@@ -128,6 +128,7 @@ void printSDInfo()
 void m7_setup()
 {
   Serial.begin(115200);
+  delay(2000);
 
   // (local-dev)
   // while (!Serial)
@@ -154,7 +155,14 @@ void m7_setup()
   {
     sd_check = true;
     Serial.println("[SD] conectada.");
+
     printSDInfo();
+
+    if (getLoggingSession().bootstrapLastLogFileFromSD("/sd"))
+    {
+      Serial.print("[SD] Last log file: ");
+      Serial.println(getLoggingSession().getActiveFileName());
+    }
   }
   else
     Serial.println("[SD] no disponible.");
