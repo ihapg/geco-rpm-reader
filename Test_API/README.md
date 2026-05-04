@@ -1,20 +1,23 @@
-# Test_API — GeCo API Client Template
+# Test_API — Reference Client for the GeCo API
 
-Desktop application (PyQt6) used as a **reference and template** to interact with the GeCo Agitators REST API.  
-The main goal is not the interface itself, but to show how to use `api_client.py` in isolation and then integrate it into any project.
+A PyQt6 desktop application designed as a practical example for consuming the GeCo REST API.
+
+The interface serves to validate the complete workflow, but the most reusable component is `api_client.py`: an HTTP client decoupled from PyQt that you can integrate into other programs.
 
 ---
 
-## Project structure
+## Project Structure
 
 ```
 Test_API/
-├── api_client.py    <- pure HTTP client, no UI dependencies  <- EXPORTABLE
-├── main.py          <- PyQt6 application that uses api_client
-├── interfaz.ui      <- main window layout (Qt Designer)
-├── log_dialog.ui    <- log dialog layout (Qt Designer)
-├── ips.json         <- saved IPs (generated automatically)
-└── requirements.txt
+├── api_client.py          <- pure HTTP client (exportable)
+├── main.py                <- reference PyQt6 application
+├── interfaz.ui            <- main window (Qt Designer)
+├── log_dialog.ui          <- log management dialog
+├── ips.json               <- automatically saved IPs
+├── requirements.txt
+└── docs/
+    └── api_guide.md       <- implementation and reuse guide
 ```
 
 ---
@@ -22,11 +25,15 @@ Test_API/
 ## Requirements
 
 - Python >= 3.10
-- Dependencies: `pip install -r requirements.txt`
+- Dependencies:
+
+```bash
+pip install -r requirements.txt
+```
 
 ---
 
-## Run the application
+## Running the App
 
 ```bash
 python main.py
@@ -34,148 +41,135 @@ python main.py
 
 ---
 
-## How the application works
+## App Functional Flow
 
-### Connection
-Enter the device IP and port (default `80`) and click **Connect**.  
-The app first calls `/api/status` to verify that the device is reachable before starting polling.  
-IPs that connect successfully are automatically saved in `ips.json`.
+### 1) Connection
 
-### Real-time polling
-Once connected, two endpoints are queried from a background thread (`PollingWorker`):
+1. Enter the IP and port (default `80`).
+2. When you click **Connect**, `/api/status` is verified first.
+3. If there is a connection, the IP is saved in `ips.json` and background polling starts.
 
-| Endpoint | Frequency | Purpose |
+Additional IP management in the UI:
+
+- **Save IP**: manually stores the current IP in `ips.json`.
+- **Remove IP**: removes the current IP from `ips.json`.
+
+Manual API check:
+
+- **Check API** triggers an on-demand call to `/api/status` and shows the result in the status bar.
+
+### 2) Real-time Polling
+
+The `PollingWorker` queries the API without blocking the UI:
+
+| Endpoint | Frequency approx. | Usage |
 |---|---|---|
-| `/api/sensors` | ~1 s | RPM and Hz readings for agitators |
-| `/api/status` | ~5 s | Device state and recording state |
+| `/api/sensors` | ~1 s | RPM/Hz readings |
+| `/api/status` | ~5 s | General status and recording state |
 
-The worker tolerates transient network errors (configurable with `_SENSORS_ERR_THRESHOLD` and `_STATUS_ERR_THRESHOLD` in `main.py`) and only reports sustained failures.  
-If `/api/status` keeps failing, the app disconnects automatically.
+The worker tolerates transient failures and only reports sustained errors.
 
-### Log manager
-The **Log Manager** button opens a dialog that allows you to:
-- List available log files on the device (`/api/logs`)
-- Download a log with streaming progress (`/api/download?file=<name>`)
-- Delete old logs while keeping the newest one (`/api/clear-logs`)
+### 3) Log Management
 
-Downloads run in a separate thread (`DownloadWorker`) so the UI stays responsive.  
-If the device is actively recording during download, it returns HTTP 409 and raises `RecordingActiveError` — the app shows this as a warning.
+From the **Log Manager** you can:
+
+- List logs (`/api/logs`)
+- Download (`/api/download?file=<name>`)
+- Clear old logs while preserving the most recent one (`/api/clear-logs`)
+
+Downloads use `DownloadWorker` (separate thread) to maintain UI responsiveness.
+
+### 4) Automatic Renaming When Recording Closes
+
+When the app detects the transition `logging: true -> false` in `/api/status`:
+
+1. Reads `last_log`.
+2. Opens a rename modal.
+3. Allows keeping the name, renaming, and optionally downloading.
+
+Rename field behavior:
+
+- The editable field shows the base name (without extension).
+- The `.log` extension is appended automatically when confirming.
+- Name validation uses `_LOG_NAME_RE` before submitting the rename.
+
+Modal cancel button behavior:
+
+- **Does not cancel the recording** (it has already ended).
+- Only **cancels the rename/download action** and keeps the original file name.
 
 ---
 
-## Device API — Quick reference
+## Device API (Summary)
 
-| Endpoint | Method | Response |
+| Endpoint | Method | Typical Response |
 |---|---|---|
 | `/api/sensors` | GET | `[{"rpm": float, "hz": float}, ...]` |
-| `/api/status` | GET | `{"status": str, "logging": bool}` |
+| `/api/status` | GET | `{"status": str, "logging": bool, "last_log": str}` |
 | `/api/logs` | GET | `["log_2026-04-20.log", ...]` |
-| `/api/download?file=<name>` | GET | binary stream; 409 when recording is active |
+| `/api/download?file=<name>` | GET | binary stream |
 | `/api/clear-logs` | GET | `{"deleted": int}` |
+| `/api/rename?from=<old>&to=<new>` | GET | `{"status":"success","from":"...","to":"..."}` |
+
+Common errors:
+
+- `409`: operation not allowed during active recording, or destination name already exists (rename).
+- `400`: invalid parameters.
+- `404`: source file not found (in rename).
+- `500`: SD rename operation failed.
+
+For rename failures, the device may return a JSON body with a specific cause such as:
+`recording`, `invalid_name`, `not_found`, `already_exists`, `rename_failed`.
 
 ---
 
-## Export `api_client.py` to another project
+## Reusing `api_client.py` in Other Programs
 
-`api_client.py` has no PyQt dependency.  
-Just copy the file into your target project and install `requests`:
+`api_client.py` does not depend on PyQt. You can copy it directly and use it in scripts, services, or any GUI.
+
+Minimal installation:
 
 ```bash
 pip install requests
 ```
 
-### Basic usage
+Quick example:
 
 ```python
 from api_client import ApiClient, RecordingActiveError
 
 client = ApiClient("192.168.1.254", "80")
 
-# Read sensors
-sensors = client.get_sensors()          # [{"rpm": 120.5, "hz": 2.0}, ...]
+status = client.get_status()
+logs = client.get_logs()
 
-# Read device status
-status = client.get_status()            # {"status": "ok", "logging": False}
+if logs:
+    client.rename_log(logs[0], "my_renamed_log.log")
 
-# List available logs
-logs = client.get_logs()                # ["log_2026-04-20.log", ...]
-
-# Download a log (optional progress callback)
-def on_progress(pct: int):
-    print(f"\r{pct}%", end="")
-
-client.download_log("log_2026-04-20.log", "/local/path/log.log", on_progress)
-
-# Delete old logs
-result = client.clear_logs()            # {"deleted": 2}
-
-# Release network resources
 client.close()
 ```
 
-### Polling usage (without PyQt)
+---
 
-```python
-import time
-from api_client import ApiClient
+## Configurable Settings in `main.py`
 
-client = ApiClient("192.168.1.254", "80")
-
-while True:
-    sensors = client.get_sensors()
-    for i, s in enumerate(sensors):
-        print(f"AG{i+1}: {s['rpm']:.1f} RPM")
-    time.sleep(1)
-```
-
-### Error handling
-
-```python
-import requests
-from api_client import ApiClient, RecordingActiveError
-
-client = ApiClient("192.168.1.254", "80")
-
-try:
-    client.download_log("log.log", "local.log")
-except RecordingActiveError:
-    print("Device is recording, try again later.")
-except requests.Timeout:
-    print("Device is not responding.")
-except requests.HTTPError as e:
-    print(f"HTTP error: {e.response.status_code}")
-```
-
-### PyQt integration (recommended pattern)
-
-The pattern used in `main.py` is the recommended way to integrate `ApiClient` into a PyQt GUI:
-
-```python
-class MyWorker(QtCore.QThread):
-    data_ready = QtCore.pyqtSignal(list)
-
-    def __init__(self, api: ApiClient):
-        super().__init__()
-        self.api = api
-
-    def run(self):
-        data = self.api.get_sensors()    # blocking call - safe in background thread
-        self.data_ready.emit(data)       # always emit from worker thread, never touch UI directly
-```
-
-Key rule: **always call `ApiClient` from a `QThread`, never from the main UI thread**, to avoid blocking the interface.
+| Constant | Default Value | Description |
+|---|---|---|
+| `_SENSOR_COUNT` | `12` | Number of sensor rows in table |
+| `_STATUS_POLL_EVERY` | `5` | Sensor cycles between status reads |
+| `_POLL_SLEEP_MS` | `100` | Wait per internal iteration |
+| `_POLL_SLEEP_ITERS` | `10` | Iterations per cycle (~1 s) |
+| `_SENSORS_ERR_THRESHOLD` | `5` | `/api/sensors` failures before notifying |
+| `_STATUS_ERR_THRESHOLD` | `3` | `/api/status` failures before disconnecting |
+| `_LOG_NAME_RE` | `^[\w\-]{1,60}\.log$` | Name validation rule for renaming |
 
 ---
 
-## Behavior settings (`main.py`)
+## Integration Recommendations
 
-Constants at the top of `main.py` let you tune behavior without changing business logic:
+1. Separate HTTP transport and UI (as in `api_client.py` + `main.py`).
+2. Run periodic requests in a background thread.
+3. Maintain validation on both client and server for file operations.
+4. For long-running operations (e.g., downloads), use dedicated workers.
 
-| Constant | Default value | Description |
-|---|---|---|
-| `_SENSOR_COUNT` | `12` | Number of rows in the sensor table |
-| `_STATUS_POLL_EVERY` | `5` | Sensor cycles between status requests |
-| `_POLL_SLEEP_MS` | `100` | Sleep ms per internal polling iteration |
-| `_POLL_SLEEP_ITERS` | `10` | Iterations per cycle (cycle ~= 1 s total) |
-| `_SENSORS_ERR_THRESHOLD` | `5` | Consecutive `/api/sensors` failures before reporting |
-| `_STATUS_ERR_THRESHOLD` | `3` | Consecutive `/api/status` failures before disconnect |
+For a more detailed guide aimed at implementation in other projects, check `docs/api_guide.md`.
