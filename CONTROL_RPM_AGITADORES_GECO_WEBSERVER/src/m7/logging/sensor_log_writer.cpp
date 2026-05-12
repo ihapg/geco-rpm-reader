@@ -3,16 +3,15 @@
 
 String getLogFileName(time_t timestamp)
 {
-  // Formato: GECO_THRUSTER_YYYYMMDD_HHMMSS.log
-  String fileName = getDateTimeString(timestamp, "GECO_THRUSTER_%Y%m%d_%H%M%S.log");
-  return fileName;
+  return getDateTimeString(timestamp, "GECO_THRUSTER_%Y%m%d_%H%M%S.log");
 }
 
-void logToSD(FILE* file, const SensorData &sensorsData, time_t timestamp)
+void logToSD(FILE *file, const SensorData &sensorsData, time_t timestamp)
 {
   // "a" = "append" adición de escritura y "+" permite lectura (read, write, append)
   // FILE *file = fopen(path, "a+");
-  if (!file) return;
+  if (!file)
+    return;
 
   fseek(file, 0, SEEK_END);
 
@@ -30,16 +29,9 @@ void logToSD(FILE* file, const SensorData &sensorsData, time_t timestamp)
     fprintf(file, "%s", "Time");
 
     for (auto &sensor : sensorsData.sensors)
-    {
-      std::string headerName = sensor.id + "(rpm)";
-      fprintf(file, "\t%s", headerName.c_str());
-    }
-    
+      fprintf(file, "\t%s(rpm)", sensor.id.c_str());
     for (auto &sensor : sensorsData.sensors)
-    {
-      std::string headerName = sensor.id + "(hz)";
-      fprintf(file, "\t%s", headerName.c_str());
-    }
+      fprintf(file, "\t%s(hz)", sensor.id.c_str());
     fprintf(file, "\r\n");
   }
 
@@ -48,16 +40,11 @@ void logToSD(FILE* file, const SensorData &sensorsData, time_t timestamp)
 
   // Valores RPM
   for (auto &sensor : sensorsData.sensors)
-  {
     fprintf(file, "\t%.2f", sensor.rpm);
-  }
 
-  // Valores HZ
+  // Valores Hz
   for (auto &sensor : sensorsData.sensors)
-  {
     fprintf(file, "\t%.2f", sensor.hz);
-  }
-
   fprintf(file, "\r\n");
   // fflush(file);
   // fclose(file);

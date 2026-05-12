@@ -4,7 +4,8 @@
 #include <NTPClient.h>
 
 // NTP time synchronization and DST offset calculation
-int syncTimeNTP(NTPClient& timeClient);
+int syncTimeNTP(NTPClient &timeClient);
+int tryNTPSyncOnce(NTPClient &timeClient);
 int getDSTOffset(time_t utc);
 
 // Time formatting utilities

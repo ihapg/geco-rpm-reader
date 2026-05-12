@@ -7,9 +7,10 @@
 #include <Ethernet.h>
 #include <ArduinoJson.h>
 #include <NTPClient.h>
+#include <mbed.h>
 
 // === Variables ===
-// Configuracion server
+// Configuracion de red
 // (prod)
 const IPAddress ip(192, 168, 1, 254);
 const IPAddress dns(192, 168, 1, 1);
@@ -38,6 +39,8 @@ static const uint8_t MAX_CLIENTS = 5;
 static const uint32_t CLIENT_TIMEOUT_MS = 500;
 static EthernetClient clients[MAX_CLIENTS];
 static uint32_t clientTimestamp[MAX_CLIENTS] = {0};
+static const uint32_t ETHERNET_CHECK_INTERVAL = 5000;
+static uint32_t lastEthernetCheck = 0;
 
 // Ajuste y sincronización de fecha y hora (NTP)
 EthernetUDP ntpUDP;
@@ -48,7 +51,25 @@ EthernetUDP ntpUDP;
 NTPClient timeClient(ntpUDP, "ntp.ihcantabria.com", 0);
 
 const uint32_t NTP_UPDATE_INTERVAL = 43200000; // 12h en ms
+const uint32_t WATCHDOG_TIMEOUT_MS = 15000;
 static int syncDSTOffset = 0;
+
+// Variables de tiempo en caso de desconexión
+static unsigned long epochBase = 0;
+static unsigned long millisBase = 0;
+
+// Máquina de estados NTP (reconexión no bloqueante en runtime)
+enum NtpSyncState : uint8_t
+{
+  NTP_UNSYNC = 0,
+  NTP_SYNCING = 1,
+  NTP_RETRY_WAIT = 2
+};
+static NtpSyncState ntpSyncState = NTP_UNSYNC;
+static uint8_t ntpRetryCount = 0;
+static uint32_t ntpRetryDeadline = 0;
+static const uint8_t NTP_MAX_RETRIES = 3;
+static const uint32_t NTP_RETRY_INTERVAL_MS = 3000;
 
 // Log de datos
 static LoggingSession loggingSession;
@@ -192,23 +213,116 @@ void m7_setup()
     Serial.println("[Ethernet] no conectado");
 
   // Servidor
-  server.begin();
-  Serial.println("[HTTP] Servidor arrancado.");
+  if (ethernet_check)
+  {
+    server.begin();
+    Serial.println("[HTTP] Servidor arrancado.");
+  }
+
+  // Watchdog M7
+  mbed::Watchdog::get_instance().start(WATCHDOG_TIMEOUT_MS);
 }
 
 void m7_loop()
 {
   digitalWrite(LEDG, (millis() / 1000) % 2);
 
-  // Sincronización de datos con M4
-  if (millis() - lastRPC > RPC_UPDATE_INTERVAL)
+  // Re-detección periódica de red Ethernet
+  if (millis() - lastEthernetCheck >= ETHERNET_CHECK_INTERVAL)
+  {
+    lastEthernetCheck = millis();
+    bool linkUp = (Ethernet.linkStatus() == LinkON);
+
+    if (linkUp && !ethernet_check)
+    {
+      ethernet_check = true;
+      Serial.print("[Ethernet] RECUPERADO, IP: ");
+      Serial.println(Ethernet.localIP());
+
+      ntpUDP.begin(8888);
+      timeClient.begin();
+      timeClient.setUpdateInterval(NTP_UPDATE_INTERVAL);
+
+      // NTP: sync diferida y no bloqueante para no interrumpir grabación activa.
+      // La máquina de estados NTP intentará sincronizar fuera de sesión de log.
+      ntpSyncState = NTP_SYNCING;
+      ntpRetryCount = 0;
+
+      server.begin();
+      Serial.println("[HTTP] Servidor reactivado.");
+    }
+    else if (!linkUp && ethernet_check)
+    {
+      millisBase = millis();
+      epochBase = timeClient.getEpochTime() + syncDSTOffset;
+      ethernet_check = false;
+      ntp_check = false;
+      ntpSyncState = NTP_UNSYNC;
+      Serial.println("[Ethernet] LINK perdido.");
+
+      for (uint8_t i = 0; i < MAX_CLIENTS; i++)
+      {
+        if (clients[i])
+          clients[i].stop();
+      }
+    }
+  }
+
+  // Máquina de estados NTP (no bloqueante en reconexión runtime)
+  // Solo intenta sincronizar cuando no hay grabación activa para evitar gaps en el log.
+  if (ntpSyncState == NTP_SYNCING && !loggingSession.isActive())
+  {
+    int dstResult = tryNTPSyncOnce(timeClient);
+    if (dstResult >= 0)
+    {
+      syncDSTOffset = dstResult;
+      ntp_check = true;
+      ntpSyncState = NTP_UNSYNC;
+
+      // Ancla lastLoggedTime al tiempo real para evitar catch-up masivo.
+      time_t recoveredNow = (time_t)timeClient.getEpochTime() + syncDSTOffset;
+      if (recoveredNow > 0)
+        lastLoggedTime = recoveredNow - 1;
+
+      Serial.println("[NTP] Sincronizado tras recuperación de red.");
+    }
+    else
+    {
+      ntpRetryCount++;
+      if (ntpRetryCount >= NTP_MAX_RETRIES)
+      {
+        ntp_check = false;
+        ntpSyncState = NTP_UNSYNC;
+        Serial.println("[NTP] No disponible tras recuperación de red.");
+      }
+      else
+      {
+        ntpRetryDeadline = millis() + NTP_RETRY_INTERVAL_MS;
+        ntpSyncState = NTP_RETRY_WAIT;
+      }
+    }
+  }
+  else if (ntpSyncState == NTP_RETRY_WAIT && millis() >= ntpRetryDeadline)
+  {
+    ntpSyncState = NTP_SYNCING;
+  }
+
+  // Sincronización de datos con M4 (RPC)
+  if (rpc_check && (millis() - lastRPC > RPC_UPDATE_INTERVAL))
   {
     sensorsM7 = RPC.call("get_data").as<SensorData>();
     lastRPC = millis();
   }
 
-  // Log de datos (polling RTC)
-  time_t now = (time_t)timeClient.getEpochTime() + syncDSTOffset;
+  if (ntp_check)
+  {
+    epochBase = timeClient.getEpochTime() + syncDSTOffset;
+  }
+
+  // Calculate time: NTP synchronized or fallback to internal clock
+  time_t now = ntp_check
+                   ? (time_t)timeClient.getEpochTime() + syncDSTOffset
+                   : (time_t)(epochBase + ((millis() - millisBase) / 1000));
 
   if (now > lastLoggedTime)
   {
@@ -218,71 +332,68 @@ void m7_loop()
     while (lastLoggedTime < now)
     {
       lastLoggedTime++;
-
-      // Write log through logging session
       loggingSession.writeData(sensorsM7, lastLoggedTime);
     }
   }
 
-  // Sincronización de tiempo (no bloqueante, usa intervalo interno de NTPClient)
-  if (timeClient.update())
+  // Periodic NTP time update
+  if (ntp_check && timeClient.update())
   {
     syncDSTOffset = getDSTOffset(timeClient.getEpochTime());
     Serial.println("[NTP] Fecha y hora sincronizadas con éxito.");
   }
 
-  // Actualizar sesión de logging
   loggingSession.update(sensorsM7, sd_check, now);
 
-  // Gestión multi-slot de clientes HTTP (non-blocking)
+  // Gestión multi-slot de clientes HTTP
 
-  // 1. Aceptar cliente entrante si hay slot libre
-  EthernetClient incoming = server.accept();
-  if (incoming)
+  if (ethernet_check)
   {
-    bool placed = false;
+    EthernetClient incoming = server.accept();
+    if (incoming)
+    {
+      bool placed = false;
+      for (uint8_t i = 0; i < MAX_CLIENTS; i++)
+      {
+        if (!clients[i])
+        {
+          clients[i] = incoming;
+          clientTimestamp[i] = millis();
+          placed = true;
+          break;
+        }
+      }
+      if (!placed)
+      {
+        incoming.println("HTTP/1.1 503 Service Unavailable\r\nContent-Length: 0\r\nConnection: close\r\n");
+        incoming.flush();
+        incoming.stop();
+      }
+    }
     for (uint8_t i = 0; i < MAX_CLIENTS; i++)
     {
       if (!clients[i])
-      {
-        clients[i] = incoming;
-        clientTimestamp[i] = millis();
-        placed = true;
-        break;
-      }
-    }
-    if (!placed)
-    {
-      // Sin slot libre: rechazar con respuesta HTTP correcta (nunca reset en seco)
-      incoming.println("HTTP/1.1 503 Service Unavailable\r\nContent-Length: 0\r\nConnection: close\r\n");
-      incoming.flush();
-      incoming.stop();
-    }
-  }
+        continue;
 
-  // 2. Atender cada slot activo
-  for (uint8_t i = 0; i < MAX_CLIENTS; i++)
-  {
-    if (!clients[i])
-      continue;
-
-    if (clients[i].available())
-    {
-      // Petición lista: procesar y cerrar limpiamente
-      processRequest(clients[i]);
-      clients[i].flush();
-      clients[i].stop();
-    }
-    else if (!clients[i].connected() || (millis() - clientTimestamp[i]) > CLIENT_TIMEOUT_MS)
-    {
-      // Timeout o desconexión inesperada: responder si el socket sigue vivo
-      if (clients[i].connected())
+      if (clients[i].available())
       {
-        clients[i].println("HTTP/1.1 503 Service Unavailable\r\nContent-Length: 0\r\nConnection: close\r\n");
+        processRequest(clients[i]);
         clients[i].flush();
+        clients[i].stop();
       }
-      clients[i].stop();
+      else if (!clients[i].connected() || (millis() - clientTimestamp[i]) > CLIENT_TIMEOUT_MS)
+      {
+        if (clients[i].connected())
+        {
+          clients[i].println("HTTP/1.1 503 Service Unavailable\r\nContent-Length: 0\r\nConnection: close\r\n");
+          clients[i].flush();
+        }
+        clients[i].stop();
+      }
+      // else: slot activo dentro del timeout → esperar siguiente iteración
     }
-    // else: slot activo dentro del timeout → esperar siguiente iteración
   }
+
+  // Kick watchdog al final del ciclo completo
+  mbed::Watchdog::get_instance().kick();
 }

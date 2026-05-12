@@ -29,7 +29,7 @@ int getDSTOffset(time_t utc)
   struct tm *t = gmtime(&utc);
   int month = t->tm_mon + 1;
   int day = t->tm_mday;
-  int wday = t->tm_wday;  // Domingo = 0
+  int wday = t->tm_wday; // Domingo = 0
   int hour = t->tm_hour;
 
   int summerOffset = 7200;
@@ -42,13 +42,16 @@ int getDSTOffset(time_t utc)
   // Cambio a invierno
   bool winterStart = (month == 10 && isLastSunday && hour >= 1);
 
-  if (month == 3 && (day > 25 || summerStart)) return summerOffset;
-  if (month == 10 && !(day > 25 || winterStart)) return summerOffset;  
-  if (month > 3 && month < 10) return summerOffset;
+  if (month == 3 && (day > 25 || summerStart))
+    return summerOffset;
+  if (month == 10 && !(day > 25 || winterStart))
+    return summerOffset;
+  if (month > 3 && month < 10)
+    return summerOffset;
   return winterOffset;
 }
 
-// Sincronización del reloj
+// Sincronización del reloj (bloqueante, solo para uso en boot)
 int syncTimeNTP(NTPClient &timeClient)
 {
   for (int i = 0; i < 3; i++)
@@ -64,5 +67,21 @@ int syncTimeNTP(NTPClient &timeClient)
     Serial.println("[NTP] Error en la sincronización.");
     delay(1500);
   }
+  return -1;
+}
+
+// Intento único de sincronización NTP (no bloqueante en llamada: sin retry ni delay)
+// Devuelve el offset DST en segundos si tiene éxito, -1 si falla.
+int tryNTPSyncOnce(NTPClient &timeClient)
+{
+  Serial.println("[NTP] Intento de sincronización NTP...");
+  if (timeClient.forceUpdate())
+  {
+    time_t utc = timeClient.getEpochTime();
+    set_time(utc);
+    Serial.println("[NTP] Sincronizado con éxito!");
+    return getDSTOffset(utc);
+  }
+  Serial.println("[NTP] Error en la sincronización.");
   return -1;
 }
