@@ -1,0 +1,189 @@
+{
+  "folders": [
+    {
+      "name": "🔧 Firmware (PlatformIO)",
+      "path": "CONTROL_RPM_AGITADORES_GECO_WEBSERVER"
+    },
+    {
+      "name": "📱 Web Frontend",
+      "path": "SD_Files"
+    },
+    {
+      "name": "🧪 Test Client",
+      "path": "Test_API"
+    }
+  ],
+  "settings": {
+    "editor.formatOnSave": true,
+    "editor.defaultFormatter": null,
+    "editor.rulers": [
+      80,
+      120
+    ],
+    "files.exclude": {
+      "**/.git": true,
+      "**/__pycache__": true,
+      "**/*.o": true,
+      "**/*.a": true,
+      "**/build": true,
+      "**/.pio": true
+    },
+    "search.exclude": {
+      "**/.pio": true,
+      "**/build": true,
+      "**/.venv": true,
+      "**/node_modules": true
+    },
+    "[cpp]": {
+      "editor.defaultFormatter": "ms-vscode.cpptools",
+      "editor.formatOnSave": true,
+      "editor.wordBasedSuggestions": "off"
+    },
+    "[c]": {
+      "editor.formatOnSave": true
+    },
+    "[python]": {
+      "editor.defaultFormatter": "ms-python.black-formatter",
+      "editor.formatOnSave": true
+    },
+    "terminal.integrated.defaultProfile.windows": "PowerShell",
+    "terminal.integrated.fontSize": 11,
+    "files.trimTrailingWhitespace": true,
+    "files.insertFinalNewline": true,
+    "files.trimFinalNewlines": true,
+    "liveServer.settings.multiRootWorkspaceName": "📱 Web Frontend"
+  },
+  "extensions": {
+    "recommendations": [
+      "platformio.platformio-ide",
+      "ms-vscode.cpptools",
+      "clangd.clangd",
+      "ms-python.python",
+      "ms-python.black-formatter",
+      "ms-python.vscode-pylance",
+      "eamodio.gitlens",
+      "mhutchie.git-graph",
+      "gruntfuggly.todo-tree",
+      "mechatroner.rainbow-csv"
+    ]
+  },
+  "launch": {
+    "version": "0.2.0",
+    "configurations": [
+      {
+        "name": "PlatformIO Debug (M7)",
+        "type": "platformio-debug",
+        "request": "launch",
+        "projectEnvName": "m7"
+      },
+      {
+        "name": "PlatformIO Debug (M4)",
+        "type": "platformio-debug",
+        "request": "launch",
+        "projectEnvName": "m4"
+      }
+    ]
+  },
+  "tasks": {
+    "version": "2.0.0",
+    "tasks": [
+      {
+        "label": "PlatformIO: Build M7",
+        "type": "shell",
+        "command": "pio",
+        "args": [
+          "run",
+          "-e",
+          "m7"
+        ],
+        "group": {
+          "kind": "build",
+          "isDefault": true
+        },
+        "presentation": {
+          "reveal": "always"
+        },
+        "cwd": "${workspaceFolder:🔧 Firmware (PlatformIO)}"
+      },
+      {
+        "label": "PlatformIO: Build M4",
+        "type": "shell",
+        "command": "pio",
+        "args": [
+          "run",
+          "-e",
+          "m4"
+        ],
+        "group": {
+          "kind": "build"
+        },
+        "presentation": {
+          "reveal": "always"
+        },
+        "cwd": "${workspaceFolder:🔧 Firmware (PlatformIO)}"
+      },
+      {
+        "label": "PlatformIO: Upload M7",
+        "type": "shell",
+        "command": "pio",
+        "args": [
+          "run",
+          "-e",
+          "m7",
+          "-t",
+          "upload"
+        ],
+        "presentation": {
+          "reveal": "always"
+        },
+        "cwd": "${workspaceFolder:🔧 Firmware (PlatformIO)}"
+      },
+      {
+        "label": "PlatformIO: Upload M4",
+        "type": "shell",
+        "command": "pio",
+        "args": [
+          "run",
+          "-e",
+          "m4",
+          "-t",
+          "upload"
+        ],
+        "presentation": {
+          "reveal": "always"
+        },
+        "cwd": "${workspaceFolder:🔧 Firmware (PlatformIO)}"
+      },
+      {
+        "label": "PlatformIO: Full Clean",
+        "type": "shell",
+        "command": "pio",
+        "args": [
+          "run",
+          "-t",
+          "fullclean"
+        ],
+        "presentation": {
+          "reveal": "always"
+        },
+        "cwd": "${workspaceFolder:🔧 Firmware (PlatformIO)}"
+      },
+      {
+        "label": "PlatformIO: Monitor Serial",
+        "type": "shell",
+        "command": "pio",
+        "args": [
+          "device",
+          "monitor",
+          "-b",
+          "115200"
+        ],
+        "presentation": {
+          "reveal": "always"
+        },
+        "isBackground": true,
+        "cwd": "${workspaceFolder:🔧 Firmware (PlatformIO)}"
+      }
+    ]
+  }
+}
